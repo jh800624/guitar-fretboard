@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>互動吉他指板（含和絃辨識 + 快照）</title>
+  <title>互動吉他指板</title>
   <style>
     :root{
       --bg:#21242c; --panel:#161a22; --text:#e6e8ef; --muted:#98a2b3; --accent:#4f7cff;
@@ -16,7 +16,7 @@
     }
     .light-theme{
       --bg:#fdfdfd; --panel:#f0f0f0; --text:#222; --muted:#666; --accent:#4f7cff;
-      --note:#ffffff;          /* 亮色主題下在音階內更亮 */
+      --note:#ffffff;          /* 亮色主題下的音點更亮 */
       --note-neutral:#dfe3ea;  /* 不顯示音階時更淺 */
       --note-dim:#e7eaf0;      /* 不在音階內更淡 */
       --ghost:#ddd; --fret:#bbb; --fret-alt:#e6e6e6;
@@ -66,7 +66,7 @@
   <header>
     <div class="left-controls">
       <div>
-        <label>Key</</label>
+        <label>Key</label>
         <select id="keySel">
           <option>C</option><option>G</option><option>D</option><option>A</option><option>E</option>
           <option>B</option><option>F#</option><option>Db</option><option>Ab</option><option>Eb</option>
@@ -93,6 +93,8 @@
       <button id="strumUpBtn" disabled>播放和弦</button>
       <button id="saveSnapBtn" disabled>儲存快照</button>
     </div>
+
+    <!-- 明/暗色切換（右側，內建太陽/月亮圖示） -->
     <button id="themeToggle" title="切換明亮/暗色" style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0;border-radius:50%">
       <svg id="themeIcon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
         <path d="M12 4.5a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15zM12 2v2m0 16v2m10-10h-2M4 12H2m15.364-7.364l-1.414 1.414M6.05 17.95l-1.414 1.414m0-13.364l1.414 1.414m11.314 11.314l1.414 1.414" />
@@ -114,52 +116,77 @@
 
   <script>
     /* ===== 基本資料 ===== */
-    const NOTES_SHARP=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
-    const NOTES_FLAT =["C","Db","D","Eb","E","F","Gb","G","Ab","A","Bb","B"];
-    const SCALES={major:[0,2,4,5,7,9,11],natural_minor:[0,2,3,5,7,8,10],penta_major:[0,2,4,7,9],penta_minor:[0,3,5,7,10]};
-    const STANDARD_TUNING=["E4","B3","G3","D3","A2","E2"]; // 1→6 弦（上到下）
+    const NOTES_SHARP = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+    const NOTES_FLAT  = ["C","Db","D","Eb","E","F","Gb","G","Ab","A","Bb","B"];
+    const SCALES = {
+      major:[0,2,4,5,7,9,11],
+      natural_minor:[0,2,3,5,7,8,10],
+      penta_major:[0,2,4,7,9],
+      penta_minor:[0,3,5,7,10]
+    };
+    const STANDARD_TUNING = ["E4","B3","G3","D3","A2","E2"]; // 1→6 弦（上到下）
 
     /* ===== 工具函式 ===== */
-    let audioCtx=null; function ensureAudio(){ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }
-    const midiToFreq=m=>2**((m-69)/12)*440; const norm=n=>((n%12)+12)%12;
-    function preferAccidental(key){ const sharp=["G","D","A","E","B","F#","C#"], flat=["F","Bb","Eb","Ab","Db","Gb","Cb"]; if(sharp.includes(key))return"sharp"; if(flat.includes(key))return"flat"; return"sharp"; }
-    function noteName(pc,key){ return (preferAccidental(key)==="flat"?NOTES_FLAT:NOTES_SHARP)[pc]; }
-    function degreeName(pc,rootPc){ const DEG=["1","b2","2","b3","3","4","b5","5","b6","6","b7","7"]; return DEG[norm(pc-rootPc)]; }
+    let audioCtx = null;
+    function ensureAudio(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }
+    const midiToFreq = m => 2 ** ((m - 69)/12) * 440;
+    const norm = n => ((n%12)+12)%12;
+    function preferAccidental(key){
+      const sharp=["G","D","A","E","B","F#","C#"], flat=["F","Bb","Eb","Ab","Db","Gb","Cb"];
+      if(sharp.includes(key)) return "sharp";
+      if(flat.includes(key))  return "flat";
+      return "sharp";
+    }
+    function noteName(pc, key){ return (preferAccidental(key)==="flat" ? NOTES_FLAT : NOTES_SHARP)[pc]; }
+    function degreeName(pc, rootPc){
+      const DEG=["1","b2","2","b3","3","4","b5","5","b6","6","b7","7"]; return DEG[norm(pc-rootPc)];
+    }
 
     /* ===== DOM ===== */
-    const board=document.getElementById('board');
-    const keySel=document.getElementById('keySel');
-    const scaleSel=document.getElementById('scaleSel');
-    const labelSel=document.getElementById('labelSel');
-    const upBtn=document.getElementById('strumUpBtn');
-    const saveSnapBtn=document.getElementById('saveSnapBtn');
-    const themeToggle=document.getElementById('themeToggle');
-    const themeIcon=document.getElementById('themeIcon');
-    const chordPanel=document.getElementById('chordPanel');
-    const snapshots=document.getElementById('snapshots');
+    const board = document.getElementById('board');
+    const keySel = document.getElementById('keySel');
+    const scaleSel = document.getElementById('scaleSel');
+    const labelSel = document.getElementById('labelSel');
+    const upBtn = document.getElementById('strumUpBtn');
+    const saveSnapBtn = document.getElementById('saveSnapBtn');
+    const themeToggle = document.getElementById('themeToggle');
+    const themeIcon = document.getElementById('themeIcon');
+    const chordPanel = document.getElementById('chordPanel');
+    const snapshots = document.getElementById('snapshots');
 
     function updateThemeIcon(){
       if(document.body.classList.contains('light-theme')){
-        // 月亮圖示
-        themeIcon.innerHTML='<path d="M21.64 13.65A9 9 0 0 1 10.35 2.36 7 7 0 1 0 21.64 13.65z" />';
+        // 月亮
+        themeIcon.innerHTML = '<path d="M21.64 13.65A9 9 0 0 1 10.35 2.36 7 7 0 1 0 21.64 13.65z" />';
       }else{
-        // 太陽圖示
-        themeIcon.innerHTML='<path d="M12 4.5a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15zM12 2v2m0 16v2m10-10h-2M4 12H2m15.364-7.364l-1.414 1.414M6.05 17.95l-1.414 1.414m0-13.364l1.414 1.414m11.314 11.314l1.414 1.414" />';
+        // 太陽
+        themeIcon.innerHTML = '<path d="M12 4.5a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15zM12 2v2m0 16v2m10-10h-2M4 12H2m15.364-7.364l-1.414 1.414M6.05 17.95l-1.414 1.414m0-13.364l1.414 1.414m11.314 11.314l1.414 1.414" />';
       }
     }
     themeToggle.addEventListener('click',()=>{ document.body.classList.toggle('light-theme'); updateThemeIcon(); });
     updateThemeIcon();
 
-    let markedByString=[]; // 單弦唯一標記（0=1弦 ... 5=6弦）
-    function getMarkedMidis(){ return markedByString.filter(Boolean).map(g=>+g.dataset.midi); }
+    let markedByString = []; // 單弦唯一標記：索引 0..5 = 1弦..6弦
+    function getMarkedMidis(){ return markedByString.filter(Boolean).map(g=> +g.dataset.midi); }
+
+    // 從第六弦往上找第一顆被標記的音當低音（根音偏好用）
+    function getSelectionInfo(){
+      const pcs = Array.from(new Set(getMarkedMidis().map(m=> norm(m))));
+      let bassPc = null;
+      for(let s=5; s>=0; s--){ // 6弦(索引5)→1弦(索引0)
+        const g = markedByString[s];
+        if(g && g.dataset.midi){ bassPc = norm(+g.dataset.midi); break; }
+      }
+      return { pcs, bassPc };
+    }
 
     /* ===== 音色 / 播放 ===== */
-    function playGuitarNotes(midis,delay=0){
+    function playGuitarNotes(midis, delay=0){
       ensureAudio();
       midis.forEach((m,i)=>{
         const t=audioCtx.currentTime+i*delay, f0=midiToFreq(m);
         const osc=audioCtx.createOscillator(), g=audioCtx.createGain();
-        const real=new Float32Array([0,1.0,0.45,0.22,0.11,0.06]), imag=new Float32Array(real.length);
+        const real=new Float32Array([0,1.00,0.45,0.22,0.11,0.06]), imag=new Float32Array(real.length);
         const wave=audioCtx.createPeriodicWave(real,imag);
         osc.setPeriodicWave(wave);
         osc.frequency.setValueAtTime(f0,t);
@@ -170,60 +197,86 @@
         osc.start(t); osc.stop(t+1.1);
       });
     }
-    function strumUp(){ playGuitarNotes(getMarkedMidis().reverse(),0.04); }
-    upBtn.addEventListener('click',strumUp);
+    function strumUp(){ playGuitarNotes(getMarkedMidis().reverse(), 0.04); }
+    upBtn.addEventListener('click', strumUp);
 
     /* ===== 和絃模板 ===== */
-    const CHORD_TEMPLATES=[
-      {q:'5',iv:[0,7]},{q:'maj',iv:[0,4,7]},{q:'m',iv:[0,3,7]},{q:'aug',iv:[0,4,8]},{q:'dim',iv:[0,3,6]},
-      {q:'sus2',iv:[0,2,7]},{q:'sus4',iv:[0,5,7]},
-      {q:'7',iv:[0,4,7,10]},{q:'maj7',iv:[0,4,7,11]},{q:'m7',iv:[0,3,7,10]},{q:'m7b5',iv:[0,3,6,10]},{q:'dim7',iv:[0,3,6,9]},
-      {q:'6',iv:[0,4,7,9]},{q:'min6',iv:[0,3,7,9]},{q:'add9',iv:[0,4,7,14]},{q:'maj6/9',iv:[0,4,7,9,14]},
-      {q:'9',iv:[0,4,7,10,14]},{q:'maj9',iv:[0,4,7,11,14]},{q:'min9',iv:[0,3,7,10,14]},{q:'11',iv:[0,4,7,10,14,17]},{q:'13',iv:[0,4,7,10,14,21]}
+    const CHORD_TEMPLATES = [
+      {q:'5',iv:[0,7]},
+      {q:'maj',iv:[0,4,7]}, {q:'m',iv:[0,3,7]}, {q:'aug',iv:[0,4,8]}, {q:'dim',iv:[0,3,6]},
+      {q:'sus2',iv:[0,2,7]}, {q:'sus4',iv:[0,5,7]},
+      {q:'7',iv:[0,4,7,10]}, {q:'maj7',iv:[0,4,7,11]}, {q:'m7',iv:[0,3,7,10]}, {q:'m7b5',iv:[0,3,6,10]}, {q:'dim7',iv:[0,3,6,9]},
+      {q:'6',iv:[0,4,7,9]}, {q:'min6',iv:[0,3,7,9]}, {q:'add9',iv:[0,4,7,14]}, {q:'maj6/9',iv:[0,4,7,9,14]},
+      {q:'9',iv:[0,4,7,10,14]}, {q:'maj9',iv:[0,4,7,11,14]}, {q:'min9',iv:[0,3,7,10,14]},
+      {q:'11',iv:[0,4,7,10,14,17]}, {q:'13',iv:[0,4,7,10,14,21]}
     ];
-
     function uniq(a){ return Array.from(new Set(a)); }
-    function getMarkedPcs(){ return uniq(getMarkedMidis().map(m=>norm(m))); }
-    function chordSetFor(rootPc,iv){ return new Set(iv.map(n=>norm(rootPc+n))); }
-    function scoreFit(selSet,chordSet){ let inter=0; selSet.forEach(pc=>{ if(chordSet.has(pc)) inter++; }); const missing=chordSet.size-inter; const extra=selSet.size-inter; return {missing,extra,inter,score:missing*10+extra*3-inter*0.1}; }
-    function degreeLabel(n){ if(n>=21)return'13'; if(n>=17)return'11'; if(n>=14)return'9'; const m=((n%12)+12)%12; const map={0:'1',1:'♭2',2:'2',3:'♭3',4:'3',5:'4',6:'♭5',7:'5',8:'♯5',9:'6',10:'♭7',11:'7'}; return map[m]||'?'; }
+    function chordSetFor(rootPc,iv){ return new Set(iv.map(n=> norm(rootPc+n))); }
+    function scoreFit(selSet, chordSet){
+      let inter=0; selSet.forEach(pc=>{ if(chordSet.has(pc)) inter++; });
+      const missing = chordSet.size - inter;
+      const extra   = selSet.size - inter;
+      return {missing, extra, inter, score: missing*10 + extra*3 - inter*0.1};
+    }
+    function degreeLabel(n){
+      if(n>=21) return '13'; if(n>=17) return '11'; if(n>=14) return '9';
+      const m=((n%12)+12)%12;
+      const map={0:'1',1:'♭2',2:'2',3:'♭3',4:'3',5:'4',6:'♭5',7:'5',8:'♯5',9:'6',10:'♭7',11:'7'};
+      return map[m]||'?';
+    }
 
-    function findBestChord(selPcs,keyName){
+    // 和絃辨識：根音偏好（低音優先）＋轉位（slash chord）
+    function findBestChord(selPcs, keyName, bassPc){
       if(selPcs.length===0) return null;
-      const selSet=new Set(selPcs);
-      let best=null;
-      for(let root=0;root<12;root++){
+      const selSet = new Set(selPcs);
+      let best = null;
+      for(let root=0; root<12; root++){
         for(const tpl of CHORD_TEMPLATES){
-          const cset=chordSetFor(root,tpl.iv);
-          const {missing,extra,inter,score}=scoreFit(selSet,cset);
-          if(!best||score<best.score){ best={root,q:tpl.q,set:cset,missing,extra,inter,score,iv:tpl.iv}; }
+          const cset = chordSetFor(root, tpl.iv);
+          const {missing,extra,inter,score} = scoreFit(selSet, cset);
+          let total = score;
+          if(bassPc !== null){
+            // 低音優先：若根音=低音 → 大獎勵；若和絃不含低音 → 懲罰；否則小懲罰
+            if(root === bassPc) total -= 6;
+            else if(!cset.has(bassPc)) total += 6;
+            else total += 2;
+          }
+          if(!best || total < best.total){
+            best = {root,q:tpl.q,set:cset,missing,extra,inter,total,iv:tpl.iv};
+          }
         }
       }
       if(!best) return null;
-      const rootName=noteName(best.root,keyName);
-      const chordTones=Array.from(best.set).sort((a,b)=>a-b).map(pc=>noteName(pc,keyName));
-      const selNames=Array.from(selSet).map(pc=>noteName(pc,keyName));
-      const missingNames=Array.from(best.set).filter(pc=>!selSet.has(pc)).map(pc=>noteName(pc,keyName));
-      const extraNames=Array.from(selSet).filter(pc=>!best.set.has(pc)).map(pc=>noteName(pc,keyName));
-      return {label:`${rootName}${best.q}`, chordTones, selNames, missingNames, extraNames, intervals:best.iv};
+      const rootName = noteName(best.root, keyName);
+      const chordTones = Array.from(best.set).sort((a,b)=>a-b).map(pc=> noteName(pc, keyName));
+      const missingNames = Array.from(best.set).filter(pc=> !selSet.has(pc)).map(pc=> noteName(pc, keyName));
+      const extraNames   = Array.from(selSet).filter(pc=> !best.set.has(pc)).map(pc=> noteName(pc, keyName));
+      let label = `${rootName}${best.q}`;
+      // 轉位：若低音存在且屬於和絃音且 ≠ 根音 → 標 /Bass
+      if(bassPc !== null && best.set.has(bassPc) && bassPc !== best.root){
+        const bassName = noteName(bassPc, keyName);
+        label = `${label}/${bassName}`;
+      }
+      return { label, chordTones, missingNames, extraNames, intervals: best.iv, root: best.root, bassPc };
     }
 
     function updateChordPanel(){
-      const pcs=getMarkedPcs();
+      const { pcs, bassPc } = getSelectionInfo();
       if(pcs.length===0){ chordPanel.textContent='目前未選音。點選各弦上的圓點來標記，這裡會顯示和絃。'; saveSnapBtn.disabled=true; return; }
-      const best=findBestChord(pcs,keySel.value);
+      const best = findBestChord(pcs, keySel.value, bassPc);
       if(!best){ chordPanel.textContent='找不到合適的和絃。'; saveSnapBtn.disabled=true; return; }
       const parts=[];
       parts.push(`和絃：${best.label}`);
-      const chordToneLine=(labelSel.value==='degree')? best.intervals.map(deg=>degreeLabel(deg)).join(' ') : best.chordTones.join(' ');
+      const chordToneLine = (labelSel.value==='degree')
+        ? best.intervals.map(deg=> degreeLabel(deg)).join(' ')
+        : best.chordTones.join(' ');
       parts.push(`和弦音：${chordToneLine}`);
       if(best.missingNames?.length) parts.push(`少：${best.missingNames.join(' ')}`);
       if(best.extraNames?.length)   parts.push(`多：${best.extraNames.join(' ')}`);
-      chordPanel.textContent=parts.join('　|　');
-      saveSnapBtn.disabled=false;
+      chordPanel.textContent = parts.join('　|　');
+      saveSnapBtn.disabled = false;
     }
-
-    function updatePlayBtns(){ const has= getMarkedMidis().length>0; upBtn.disabled=!has; updateChordPanel(); }
+    function updatePlayBtns(){ const has = getMarkedMidis().length>0; upBtn.disabled = !has; updateChordPanel(); }
 
     /* ===== 快照：把目前標記轉成小型和絃圖（5 品視窗） ===== */
     function collectMarkedState(){
@@ -241,7 +294,7 @@
       const frets = state.map(s=> s.fret).filter(f=> f!==null);
       let minF = Infinity, maxF = -Infinity;
       frets.forEach(f=>{ if(f<minF) minF=f; if(f>maxF) maxF=f; });
-      // 起始格 = 當前選取中「最低的已標記 fret」；若為 0 則顯示上弦枕
+      // 起始格：當前選取中「最低的已標記 fret」，0 則顯示 nut
       let winStart = 0;
       if(frets.length){
         const minMarked = Math.min(...frets);
@@ -257,7 +310,7 @@
         `<rect x="0" y="0" width="${W}" height="${H}" rx="12" ry="12" fill="none" stroke="var(--btn-border)"/>`+
         `<text x="${W/2}" y="${pad-4}" text-anchor="middle" font-size="14" font-weight="700" fill="currentColor">${label||''}</text>`;
 
-      // 弦線（6 條）
+      // 弦線
       for(let i=0;i<6;i++){
         const x = pad + i*stringGap;
         svg += `<line x1="${x}" y1="${pad}" x2="${x}" y2="${pad+gridH}" stroke="currentColor" stroke-opacity="0.35" stroke-width="1.5"/>`;
@@ -268,7 +321,10 @@
         const thick = (winStart===0 && f===0) ? 6 : 2;
         svg += `<line x1="${pad}" y1="${y}" x2="${pad+gridW}" y2="${y}" stroke="currentColor" stroke-opacity="0.45" stroke-width="${thick}"/>`;
       }
-      if(winStart>0){ svg += `<text x="${pad-6}" y="${pad+fretGap*0.9}" text-anchor="end" font-size="12" fill="currentColor">${winStart}</text>`; }
+      if(winStart>0){
+        // 起始格用純數字（例：3）
+        svg += `<text x="${pad-6}" y="${pad+fretGap*0.9}" text-anchor="end" font-size="12" fill="currentColor">${winStart}</text>`;
+      }
 
       // 標記圓點與 X/O
       state.forEach(s=>{
@@ -290,8 +346,8 @@
     }
 
     function handleSaveSnapshot(){
-      const pcs = getMarkedPcs(); if(pcs.length===0) return;
-      const best = findBestChord(pcs, keySel.value);
+      const { pcs, bassPc } = getSelectionInfo(); if(pcs.length===0) return;
+      const best = findBestChord(pcs, keySel.value, bassPc);
       const state = collectMarkedState();
       const label = best ? best.label : '未命名';
       const svg = renderChordChart(state, label);
@@ -306,17 +362,22 @@
         <div class="snap-notes">弦(6→1)：${notes.slice().reverse().join(' · ')}</div>
       `;
       card.querySelector('.snap-del').addEventListener('click',()=> card.remove());
-      card.addEventListener('click',(e)=>{ if(e.target.classList.contains('snap-del')) return; const midis = state.filter(s=>s.midi).map(s=>s.midi).reverse(); if(midis.length) playGuitarNotes(midis,0.04); });
+      // 點卡片可播放這張快照（由低到高模擬向上掃弦）
+      card.addEventListener('click',(e)=>{
+        if(e.target.classList.contains('snap-del')) return;
+        const midis = state.filter(s=>s.midi).map(s=>s.midi).reverse();
+        if(midis.length) playGuitarNotes(midis,0.04);
+      });
       snapshots.prepend(card);
     }
     saveSnapBtn.addEventListener('click', handleSaveSnapshot);
 
     /* ===== 主繪圖：24 格指板 ===== */
     function buildBoard(){
-      markedByString=[];
+      markedByString = [];
       const keyName=keySel.value, scaleKey=scaleSel.value;
-      const rootPc=(NOTES_SHARP.includes(keyName)?NOTES_SHARP.indexOf(keyName):NOTES_FLAT.indexOf(keyName));
-      const scalePcs=new Set((SCALES[scaleKey]||[]).map(s=>norm(rootPc+s)));
+      const rootPc = (NOTES_SHARP.includes(keyName)? NOTES_SHARP.indexOf(keyName) : NOTES_FLAT.indexOf(keyName));
+      const scalePcs = new Set((SCALES[scaleKey]||[]).map(s=> norm(rootPc+s)));
 
       const width=1600, height=300, padX=60, padY=24;
       const fbX=padX, fbY=padY, fbW=1430, fbH=252, frets=24, strings=6;
@@ -359,18 +420,26 @@
         }
         if(f===13){
           const cx=x - fbW/(frets+0.5)/2, y1=fbY+fbH/3, y2=fbY+fbH*2/3;
-          [y1,y2].forEach(y=>{ const c=document.createElementNS('http://www.w3.org/2000/svg','circle'); c.setAttribute('cx',cx); c.setAttribute('cy',y); c.setAttribute('r',6); c.setAttribute('class','marker-dot'); board.appendChild(c); });
+          [y1,y2].forEach(y=>{
+            const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
+            c.setAttribute('cx',cx); c.setAttribute('cy',y); c.setAttribute('r',6); c.setAttribute('class','marker-dot');
+            board.appendChild(c);
+          });
         }
       }
 
       // 解析調弦（1→6 弦：E4 B3 G3 D3 A2 E2）
-      function parseNote(tok){ const m=tok.match(/^([A-G](?:#|b)?)(\d)$/); const name=m[1],oct=+m[2]; const pc=(NOTES_SHARP.indexOf(name)>=0?NOTES_SHARP.indexOf(name):NOTES_FLAT.indexOf(name)); return {pc,midi:(oct+1)*12+pc}; }
-      const tuning=STANDARD_TUNING.map(parseNote);
+      function parseNote(tok){
+        const m=tok.match(/^([A-G](?:#|b)?)(\d)$/); const name=m[1], oct=+m[2];
+        const pc=(NOTES_SHARP.indexOf(name)>=0?NOTES_SHARP.indexOf(name):NOTES_FLAT.indexOf(name));
+        return { pc, midi:(oct+1)*12+pc };
+      }
+      const tuning = STANDARD_TUNING.map(parseNote);
 
       // 畫音點（含開放弦 f=0）與互動
       for(let s=0;s<strings;s++){
         const open=tuning[s];
-        for(let f=0;f<=frets;f++){
+        for(let f=0; f<=frets; f++){
           const midi=open.midi+f, pc=norm(open.pc+f);
           const cx=fbX+fbW*((f+0.5)/(frets+0.5)), cy=fbY+fbH*(s+0.5)/strings;
           const g=document.createElementNS('http://www.w3.org/2000/svg','g');
@@ -378,20 +447,24 @@
 
           const dot=document.createElementNS('http://www.w3.org/2000/svg','circle');
           dot.setAttribute('cx',cx); dot.setAttribute('cy',cy); dot.setAttribute('r',12);
-          const fillColor=(scaleSel.value==='none')?'var(--note-neutral)':(scalePcs.has(pc)?'var(--note)':'var(--note-dim)');
+          const fillColor=(scaleSel.value==='none') ? 'var(--note-neutral)' : (scalePcs.has(pc)? 'var(--note)' : 'var(--note-dim)');
           dot.setAttribute('fill',fillColor);
 
           const lbl=document.createElementNS('http://www.w3.org/2000/svg','text');
           lbl.setAttribute('x',cx); lbl.setAttribute('y',cy+3);
           lbl.setAttribute('text-anchor','middle'); lbl.setAttribute('font-size','11'); lbl.setAttribute('fill','#0b0e14');
-          lbl.textContent=(labelSel.value==='degree' && scaleSel.value!=='none')? degreeName(pc, rootPc) : noteName(pc, keySel.value);
+          lbl.textContent = (labelSel.value==='degree' && scaleSel.value!=='none') ? degreeName(pc, rootPc) : noteName(pc, keySel.value);
 
           g.appendChild(dot); g.appendChild(lbl); board.appendChild(g);
 
           g.addEventListener('click',()=>{
-            playGuitarNotes([midi]);
-            if(g.classList.contains('marked')){ g.classList.remove('marked'); markedByString[s]=null; }
-            else{ if(markedByString[s]&&markedByString[s].isConnected){ markedByString[s].classList.remove('marked'); } g.classList.add('marked'); markedByString[s]=g; }
+            playGuitarNotes([midi]); // 點即發聲
+            if(g.classList.contains('marked')){
+              g.classList.remove('marked'); markedByString[s]=null;
+            }else{
+              if(markedByString[s] && markedByString[s].isConnected){ markedByString[s].classList.remove('marked'); }
+              g.classList.add('marked'); markedByString[s]=g;
+            }
             updatePlayBtns();
           });
         }
