@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>互動吉他指板（和絃辨識＋轉位＋快照）</title>
+  <style>
+    :root{
+      --bg:#21242c; --panel:#161a22; --text:#e6e8ef; --muted:#98a2b3; --accent:#4f7cff;
+      --note:#d0d0d0;           /* 在音階內的音（灰階） */
+      --note-neutral:#bfc5cf;   /* 不顯示音階時的中性灰 */
+      --note-dim:#555b66;       /* 不在音階內的音（較淡） */
+      --ghost:#2a3040; --fret:#243042; --fret-alt:#1e222c; /* 指板底色（第2格起） */
+      --btn-bg:#111723; --btn-text:var(--text); --btn-border:#2a3344;
+      --card:#111723;
+    }
+    .light-theme{
+      --bg:#fdfdfd; --panel:#f0f0f0; --text:#222; --muted:#666; --accent:#4f7cff;
+      --note:#ffffff;          /* 亮色主題下在音階內更亮 */
+      --note-neutral:#dfe3ea;  /* 不顯示音階時更淺 */
+      --note-dim:#e7eaf0;      /* 不在音階內更淡 */
+      --ghost:#ddd; --fret:#bbb; --fret-alt:#e6e6e6;
+      --btn-bg:#fff; --btn-text:#222; --btn-border:#ccc; --card:#fff;
+    }
+
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans TC",sans-serif;transition:background .3s,color .3s}
+    header{padding:12px 16px;background:var(--panel);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;transition:background .3s}
+    .left-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    label{font-size:12px;color:var(--muted);margin-right:6px}
+    select, button{accent-color:var(--accent);background:var(--btn-bg);color:var(--btn-text);border:1px solid var(--btn-border);border-radius:10px;padding:6px 8px;font-size:14px;transition:background .3s,color .3s,border .3s}
+    button{cursor:pointer}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    main{padding:16px}
+
+    .board-wrap{overflow:auto;border:1px solid #222a3a;border-radius:14px;background:linear-gradient(#0c0f16,#0c1018);transition:background .3s,border .3s}
+    .light-theme .board-wrap{background:linear-gradient(#fff,#f7f7f7);border-color:#ccc}
+
+    svg{display:block;width:1600px;max-width:none}
+    .string{stroke:#b6bccb;stroke-width:1.6}
+    .fret{stroke:var(--fret);stroke-width:2}
+    .fret.first-fret{stroke-width:9}    /* 第一格加粗（視覺 nut） */
+    .fret-bg{fill:var(--fret-alt)}      /* 從第二格開始鋪底色 */
+
+    .note{cursor:pointer;paint-order:stroke;stroke:#0b0e14;stroke-width:1.5;filter:drop-shadow(0 2px 4px rgba(0,0,0,.35))}
+    .note text{font-weight:600;font-size:11px;fill:#0b0e14}
+    .note.marked circle{fill:#f59e0b !important} /* 單弦唯一標記色 */
+
+    .marker-dot{fill:#666;opacity:.4}   /* 品位定位點 */
+
+    .chord-panel{margin:16px 16px 0;padding:24px 18px;border:1px dashed var(--btn-border);border-radius:14px;background:rgba(255,255,255,0.03);color:var(--text);font-size:22px;line-height:1.7;min-height:110px;letter-spacing:.5px;text-align:center}
+    .light-theme .chord-panel{background:rgba(0,0,0,0.04)}
+
+    /* 快照區 */
+    .snap-actions{display:flex;gap:10px;align-items:center;margin:12px 16px}
+    .snapshots{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin:12px 16px}
+    .snap-card{background:var(--card);border:1px solid var(--btn-border);border-radius:12px;padding:10px 10px 12px}
+    .snap-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;color:var(--muted);font-size:12px}
+    .snap-title{font-weight:600;color:var(--text)}
+    .snap-del{border:none;background:transparent;color:var(--muted);cursor:pointer}
+    .snap-svg{display:block;width:100%;height:auto}
+    .snap-notes{font-size:12px;color:var(--muted);margin-top:6px}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="left-controls">
+      <div>
+        <label>Key</label>
+        <select id="keySel">
+          <option>C</option><option>G</option><option>D</option><option>A</option><option>E</option>
+          <option>B</option><option>F#</option><option>Db</option><option>Ab</option><option>Eb</option>
+          <option>Bb</option><option>F</option>
+        </select>
+      </div>
+      <div>
+        <label>Scale</label>
+        <select id="scaleSel">
+          <option value="major" selected>Major</option>
+          <option value="natural_minor">Natural Minor</option>
+          <option value="penta_major">Pentatonic Major</option>
+          <option value="penta_minor">Pentatonic Minor</option>
+          <option value="none">（不顯示）</option>
+        </select>
+      </div>
+      <div>
+        <label>顯示</label>
+        <select id="labelSel">
+          <option value="note" selected>音名</option>
+          <option value="degree">度數</option>
+        </select>
+      </div>
+      <button id="strumUpBtn" disabled>播放和弦</button>
+      <button id="saveSnapBtn" disabled>儲存快照</button>
+    </div>
+    <button id="themeToggle" title="切換明亮/暗色" style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0;border-radius:50%">
+      <svg id="themeIcon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+        <path d="M12 4.5a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15zM12 2v2m0 16v2m10-10h-2M4 12H2m15.364-7.364l-1.414 1.414M6.05 17.95l-1.414 1.414m0-13.364l1.414 1.414m11.314 11.314l1.414 1.414" />
+      </svg>
+    </button>
+  </header>
+
+  <main>
+    <div class="board-wrap">
+      <svg id="board" viewBox="0 0 1600 320" aria-label="guitar fretboard"></svg>
+    </div>
+    <div class="chord-panel" id="chordPanel">目前未選音。點選各弦上的圓點來標記，這裡會顯示和絃。</div>
+
+    <div class="snap-actions">
+      <span style="color:var(--muted);font-size:12px">把目前標記的發聲位置存成和絃圖</span>
+    </div>
+    <div class="snapshots" id="snapshots"></div>
+  </main>
+
+  <script>
+    /* ===== 基本資料 ===== */
+    const NOTES_SHARP=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+    const NOTES_FLAT =["C","Db","D","Eb","E","F","Gb","G","Ab","A","Bb","B"];
+    const SCALES={major:[0,2,4,5,7,9,11],natural_minor:[0,2,3,5,7,8,10],penta_major:[0,2,4,7,9],penta_minor:[0,3,5,7,10]};
+    const STANDARD_TUNING=["E4","B3","G3","D3","A2","E2"]; // 1→6 弦（上到下）
+
+    /* ===== 工具函式 ===== */
+    let audioCtx=null; function ensureAudio(){ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }
+    const midiToFreq=m=>2**((m-69)/12)*440; const norm=n=>((n%12)+12)%12;
+    function preferAccidental(key){ const sharp=["G","D","A","E","B","F#","C#"], flat=["F","Bb","Eb","Ab","Db","Gb","Cb"]; if(sharp.includes(key))return"sharp"; if(flat.includes(key))return"flat"; return"sharp"; }
+    function noteName(pc,key){ return (preferAccidental(key)==="flat"?NOTES_FLAT:NOTES_SHARP)[pc]; }
+    function degreeName(pc,rootPc){ const DEG=["1","b2","2","b3","3","4","b5","5","b6","6","b7","7"]; return DEG[norm(pc-rootPc)]; }
+
+    /* ===== DOM ===== */
+    const board=document.getElementById('board');
+    const keySel=document.getElementById('keySel');
+    const scaleSel=document.getElementById('scaleSel');
+    const labelSel=document.getElementById('labelSel');
+    const upBtn=document.getElementById('strumUpBtn');
+    const saveSnapBtn=document.getElementById('saveSnapBtn');
+    const themeToggle=document.getElementById('themeToggle');
+    const themeIcon=document.getElementById('themeIcon');
+    const chordPanel=document.getElementById('chordPanel');
+    const snapshots=document.getElementById('snapshots');
+
+    function updateThemeIcon(){
+      if(document.body.classList.contains('light-theme')){
+        themeIcon.innerHTML='<path d="M21.64 13.65A9 9 0 0 1 10.35 2.36 7 7 0 1 0 21.64 13.65z" />';
+      }else{
+        themeIcon.innerHTML='<path d="M12 4.5a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15zM12 2v2m0 16v2m10-10h-2M4 12H2m15.364-7.364l-1.414 1.414M6.05 17.95l-1.414 1.414m0-13.364l1.414 1.414m11.314 11.314l1.414 1.414" />';
+      }
+    }
+    themeToggle.addEventListener('click',()=>{ document.body.classList.toggle('light-theme'); updateThemeIcon(); });
+    updateThemeIcon();
+
+    let markedByString=[]; // 單弦唯一標記（0=1弦 ... 5=6弦）
+    function getMarkedMidis(){ return markedByString.filter(Boolean).map(g=>+g.dataset.midi); }
+
+    // 取得目前選取：所有音名的 pitch classes 與「貝斯音」（從第六弦往上找到的第一顆）
+    function getSelectionInfo(){
+      const pcs = Array.from(new Set(getMarkedMidis().map(m=> norm(m))));
+      let bassPc = null;
+      for(let s=5; s>=0; s--){
+        const g = markedByString[s];
+        if(g && g.dataset.midi){ bassPc = norm(+g.dataset.midi); break; }
+      }
+      return { pcs, bassPc };
+    }
+
+    /* ===== 音色 / 播放 ===== */
+    function playGuitarNotes(midis,delay=0){
+      ensureAudio();
+      midis.forEach((m,i)=>{
+        const t=audioCtx.currentTime+i*delay, f0=midiToFreq(m);
+        const osc=audioCtx.createOscillator(), g=audioCtx.createGain();
+        const real=new Float32Array([0,1.0,0.45,0.22,0.11,0.06]), imag=new Float32Array(real.length);
+        const wave=audioCtx.createPeriodicWave(real,imag);
+        osc.setPeriodicWave(wave);
+        osc.frequency.setValueAtTime(f0,t);
+        g.gain.setValueAtTime(0.0001,t);
+        g.gain.exponentialRampToValueAtTime(0.5,t+0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001,t+1.0);
+        osc.connect(g); g.connect(audioCtx.destination);
+        osc.start(t); osc.stop(t+1.1);
+      });
+    }
+    function strumUp(){ playGuitarNotes(getMarkedMidis().reverse(),0.04); }
+    upBtn.addEventListener('click',strumUp);
+
+    /* ===== 和絃模板 ===== */
+    const CHORD_TEMPLATES=[
+      {q:'5',iv:[0,7]},{q:'maj',iv:[0,4,7]},{q:'m',iv:[0,3,7]},{q:'aug',iv:[0,4,8]},{q:'dim',iv:[0,3,6]},
+      {q:'sus2',iv:[0,2,7]},{q:'sus4',iv:[0,5,7]},
+      {q:'7',iv:[0,4,7,10]},{q:'maj7',iv:[0,4,7,11]},{q:'m7',iv:[0,3,7,10]},{q:'m7b5',iv:[0,3,6,10]},{q:'dim7',iv:[0,3,6,9]},
+      {q:'6',iv:[0,4,7,9]},{q:'min6',iv:[0,3,7,9]},{q:'add9',iv:[0,4,7,14]},{q:'maj6/9',iv:[0,4,7,9,14]},
+      {q:'9',iv:[0,4,7,10,14]},{q:'maj9',iv:[0,4,7,11,14]},{q:'min9',iv:[0,3,7,10,14]},{q:'11',iv:[0,4,7,10,14,17]},{q:'13',iv:[0,4,7,10,14,21]}
+    ];
+
+    function chordSetFor(rootPc,iv){ return new Set(iv.map(n=>norm(rootPc+n))); }
+    function scoreFit(selSet,chordSet){ let inter=0; selSet.forEach(pc=>{ if(chordSet.has(pc)) inter++; }); const missing=chordSet.size-inter; const extra=selSet.size-inter; return {missing,extra,inter,score:missing*10+extra*3-inter*0.1}; }
+    function degreeLabel(n){ if(n>=21)return'13'; if(n>=17)return'11'; if(n>=14)return'9'; const m=((n%12)+12)%12; const map={0:'1',1:'♭2',2:'2',3:'♭3',4:'3',5:'4',6:'♭5',7:'5',8:'♯5',9:'6',10:'♭7',11:'7'}; return map[m]||'?'; }
+
+    function findBestChord(selPcs, keyName, bassPc){
+      if(selPcs.length===0) return null;
+      const selSet = new Set(selPcs);
+      let best = null;
+      for(let root=0; root<12; root++){
+        for(const tpl of CHORD_TEMPLATES){
+          const cset = chordSetFor(root, tpl.iv);
+          const {missing,extra,inter,score} = scoreFit(selSet, cset);
+          let total = score;
+          // 根音偏好：若有低音（靠近第 6 弦的標記音），優先當成根音
+          if(bassPc !== null){
+            if(root === bassPc) total -= 6; else if(!cset.has(bassPc)) total += 6; else total += 2;
+          }
+          if(!best || total < best.total){ best = {root,q:tpl.q,set:cset,missing,extra,inter,total,iv:tpl.iv}; }
+        }
+      }
+      if(!best) return null;
+      const rootName = noteName(best.root, keyName);
+      const chordTones = Array.from(best.set).sort((a,b)=>a-b).map(pc=> noteName(pc, keyName));
+      const missingNames = Array.from(best.set).filter(pc=> !selSet.has(pc)).map(pc=> noteName(pc, keyName));
+      const extraNames   = Array.from(selSet).filter(pc=> !best.set.has(pc)).map(pc=> noteName(pc, keyName));
+      let label = `${rootName}${best.q}`;
+      if(bassPc !== null && best.set.has(bassPc) && bassPc !== best.root){
+        const bassName = noteName(bassPc, keyName);
+        label = `${label}/${bassName}`; // 轉位標示
+      }
+      return { label, chordTones, missingNames, extraNames, intervals: best.iv, root: best.root, bassPc };
+    }
+
+    function updateChordPanel(){
+      const { pcs, bassPc } = getSelectionInfo();
+      if(pcs.length===0){ chordPanel.textContent='目前未選音。點選各弦上的圓點來標記，這裡會顯示和絃。'; saveSnapBtn.disabled=true; return; }
+      const best = findBestChord(pcs, keySel.value, bassPc);
+      if(!best){ chordPanel.textContent='找不到合適的和絃。'; saveSnapBtn.disabled=true; return; }
+      const parts=[];
+      parts.push(`和絃：${best.label}`);
+      const chordToneLine=(labelSel.value==='degree')? best.intervals.map(deg=>degreeLabel(deg)).join(' ') : best.chordTones.join(' ');
+      parts.push(`和弦音：${chordToneLine}`);
+      if(best.missingNames?.length) parts.push(`少：${best.missingNames.join(' ')}`);
+      if(best.extraNames?.length)   parts.push(`多：${best.extraNames.join(' ')}`);
+      chordPanel.textContent=parts.join('　|　');
+      saveSnapBtn.disabled=false;
+    }
+
+    function updatePlayBtns(){ const has= getMarkedMidis().length>0; upBtn.disabled=!has; updateChordPanel(); }
+
+    /* ===== 快照：把目前標記轉成小型和絃圖（5 品視窗） ===== */
+    function collectMarkedState(){
+      const out=[];
+      for(let s=0;s<6;s++){
+        const g=markedByString[s];
+        if(g){ out.push({ string:s, fret:+g.dataset.fret, midi:+g.dataset.midi }); }
+        else{ out.push({ string:s, fret:null, midi:null }); }
+      }
+      return out;
+    }
+    function pcFromMidi(m){ return norm(m); }
+
+function renderChordChart(state, label){
+  // 取出所有被標記的品格
+  const allFrets = state.map(s => s.fret).filter(f => f !== null);
+  const fretted  = allFrets.filter(f => f > 0);
+  const hasOpen  = state.some(s => s.fret === 0);
+
+  // 視窗起始格：
+  // - 有按弦：從最小按弦品開始
+  // - 全開放/全 X：從 0
+  let winStart = 0;
+  if(fretted.length > 0) winStart = Math.min(...fretted);
+
+  // 視窗結束格：只顯示「實際用到」的最高按弦品
+  // - 若沒有按弦（只有開放弦/全 X）：讓最高 = winStart (0)
+  let winEnd = winStart;
+  if(fretted.length > 0) winEnd = Math.max(...fretted);
+
+  // 要畫幾格：只畫會用到的格數（不多畫空格）
+  // 例：只用到 2、3 品 → winStart=2 winEnd=3 → winFrets=2（只畫兩格）
+  // 至少顯示 3 格，避免和弦圖過扁
+  // 至少顯示 3 格，避免某些和絃只顯示 1~2 格看起來太擠
+  const winFrets = Math.max(3, winEnd - winStart + 1);
+
+  const W = 200, H = 220;
+  const pad = 18, titleH = 28;
+  const gridW = W - 2 * pad;
+  const gridH = H - 2 * pad - titleH;
+  const stringGap = gridW / 5;
+  const fretGap   = gridH / winFrets;
+
+  let svg =
+    `<svg class="snap-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">` +
+    `<rect x="0" y="0" width="${W}" height="${H}" rx="12" ry="12" fill="none" stroke="var(--btn-border)"/>` +
+    `<text x="${W/2}" y="${pad-4}" text-anchor="middle" font-size="14" font-weight="700" fill="currentColor">${label || ''}</text>`;
+
+  /* ===== 弦線（左→右：6 → 1） ===== */
+  for(let i = 0; i < 6; i++){
+    const x = pad + i * stringGap;
+    svg += `<line x1="${x}" y1="${pad}" x2="${x}" y2="${pad + gridH}" stroke="currentColor" stroke-opacity="0.35" stroke-width="1.5"/>`;
+  }
+
+  /* ===== 品絲與上弦枕 ===== */
+  // 注意：我們仍然用「上方第一條線」當作 nut/上邊界。
+  // - 有開放弦：第一條線畫粗（上弦枕）
+  // - 沒有開放弦：第一條線就是一般品絲（不額外多畫空格）
+  for(let f = 0; f <= winFrets; f++){
+    const y = pad + f * fretGap;
+    const isNut = (hasOpen && f === 0);
+    const thick = isNut ? 6 : 2;
+    svg += `<line x1="${pad}" y1="${y}" x2="${pad + gridW}" y2="${y}" stroke="currentColor" stroke-opacity="0.45" stroke-width="${thick}"/>`;
+  }
+
+  // 左側起始格數字：
+  // - 沒有開放弦時，顯示起始品位（只顯示數字，不加 fr）
+  // - 有開放弦時，為了避免「nut + 起始數字」視覺混亂，維持不顯示
+  if(!hasOpen && winStart > 0){
+    svg += `<text x="${pad - 6}" y="${pad + fretGap * 0.9}" text-anchor="end" font-size="12" fill="currentColor">${winStart}</text>`;
+  }
+
+  /* ===== 音符標記 ===== */
+  state.forEach(s => {
+    const col = 5 - s.string; // 6弦在左
+    const x = pad + col * stringGap;
+
+    if(s.fret === null){
+      svg += `<text x="${x}" y="${pad - 6}" text-anchor="middle" font-size="12" fill="currentColor" opacity="0.6">x</text>`;
+      return;
+    }
+
+    if(s.fret === 0){
+      // 開放弦圓圈：固定畫在上弦枕上方
+      svg += `<circle cx="${x}" cy="${pad - 8}" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/>`;
+      return;
+    }
+
+    // 按弦：置中到對應格（以 winStart 作為第一格）
+    const rel = s.fret - winStart + 0.5;
+    const y = pad + rel * fretGap;
+    svg += `<circle cx="${x}" cy="${y}" r="8" fill="currentColor" fill-opacity="0.85"/>`;
+  });
+
+  svg += `</svg>`;
+  return svg;
+}
+
+
+    function handleSaveSnapshot(){
+      const { pcs, bassPc } = getSelectionInfo(); if(pcs.length===0) return;
+      const best = findBestChord(pcs, keySel.value, bassPc);
+      const state = collectMarkedState();
+      const label = best ? best.label : '未命名';
+      const svg = renderChordChart(state, label);
+      const notes = state.map((s)=>{ if(s.fret===null || s.midi==null) return 'x'; return noteName(pcFromMidi(s.midi), keySel.value); });
+      const card = document.createElement('div'); card.className='snap-card';
+      card.innerHTML = `
+        <div class="snap-head">
+          <span class="snap-title">${label}</span>
+          <button class="snap-del" title="刪除">刪除</button>
+        </div>
+        ${svg}
+        <div class="snap-notes">弦(6→1)：${notes.slice().reverse().join(' · ')}</div>
+      `;
+      card.querySelector('.snap-del').addEventListener('click',()=> card.remove());
+      card.addEventListener('click',(e)=>{ if(e.target.classList.contains('snap-del')) return; const midis = state.filter(s=>s.midi).map(s=>s.midi).reverse(); if(midis.length) playGuitarNotes(midis,0.04); });
+      snapshots.prepend(card);
+    }
+    saveSnapBtn.addEventListener('click', handleSaveSnapshot);
+
+    /* ===== 主繪圖：24 格指板（正確幾何） ===== */
+    function buildBoard(){
+      markedByString=[];
+      const keyName=keySel.value, scaleKey=scaleSel.value;
+      const rootPc=(NOTES_SHARP.includes(keyName)?NOTES_SHARP.indexOf(keyName):NOTES_FLAT.indexOf(keyName));
+      const scalePcs=new Set((SCALES[scaleKey]||[]).map(s=>norm(rootPc+s)));
+
+      const width=1600, height=300, padX=60, padY=24;
+      const fbX=padX, fbY=padY, fbW=1430, fbH=252, frets=24, strings=6;
+      board.setAttribute('viewBox',`0 0 ${width} ${height}`);
+      board.innerHTML='';
+
+      // 指板底色：從第 2 格開始鋪，避免出現雙 nut 視覺
+      const bg=document.createElementNS('http://www.w3.org/2000/svg','rect');
+      bg.setAttribute('x',fbX+fbW*(1/(frets+0.5)));
+      bg.setAttribute('y',fbY);
+      bg.setAttribute('width',fbW - fbW*(1/(frets+0.5)));
+      bg.setAttribute('height',fbH);
+      bg.setAttribute('class','fret-bg');
+      board.appendChild(bg);
+
+      // 弦線：從第一格開始（左側保留 nut 視覺空隙）
+      for(let s=0;s<strings;s++){
+        const y=fbY+fbH*(s+0.5)/strings;
+        const line=document.createElementNS('http://www.w3.org/2000/svg','line');
+        line.setAttribute('x1',fbX+fbW*(1/(frets+0.5)));
+        line.setAttribute('x2',fbX+fbW);
+        line.setAttribute('y1',y); line.setAttribute('y2',y);
+        line.setAttribute('class','string');
+        board.appendChild(line);
+      }
+
+      // 品絲 + 定位點（4,6,8,10,13 雙點, 16,18,20,22）
+      for(let f=1;f<=frets;f++){
+        const x=fbX+fbW*(f/(frets+0.5));
+        const l=document.createElementNS('http://www.w3.org/2000/svg','line');
+        l.setAttribute('x1',x); l.setAttribute('x2',x);
+        l.setAttribute('y1',fbY); l.setAttribute('y2',fbY+fbH);
+        l.setAttribute('class', f===1? 'fret first-fret':'fret');
+        board.appendChild(l);
+        if([4,6,8,10,16,18,20,22].includes(f)){
+          const cx=x - fbW/(frets+0.5)/2;
+          const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
+          c.setAttribute('cx',cx); c.setAttribute('cy',fbY+fbH/2); c.setAttribute('r',6); c.setAttribute('class','marker-dot');
+          board.appendChild(c);
+        }
+        if(f===13){
+          const cx=x - fbW/(frets+0.5)/2, y1=fbY+fbH/3, y2=fbY+fbH*2/3;
+          [y1,y2].forEach(y=>{ const c=document.createElementNS('http://www.w3.org/2000/svg','circle'); c.setAttribute('cx',cx); c.setAttribute('cy',y); c.setAttribute('r',6); c.setAttribute('class','marker-dot'); board.appendChild(c); });
+        }
+      }
+
+      // 解析調弦（1→6 弦：E4 B3 G3 D3 A2 E2）
+      function parseNote(tok){ const m=tok.match(/^([A-G](?:#|b)?)(\d)$/); const name=m[1],oct=+m[2]; const pc=(NOTES_SHARP.indexOf(name)>=0?NOTES_SHARP.indexOf(name):NOTES_FLAT.indexOf(name)); return {pc,midi:(oct+1)*12+pc}; }
+      const tuning=STANDARD_TUNING.map(parseNote);
+
+      // 畫音點（含開放弦 f=0）與互動
+      for(let s=0;s<strings;s++){
+        const open=tuning[s];
+        for(let f=0;f<=frets;f++){
+          const midi=open.midi+f, pc=norm(open.pc+f);
+          const cx=fbX+fbW*((f+0.5)/(frets+0.5)), cy=fbY+fbH*(s+0.5)/strings;
+          const g=document.createElementNS('http://www.w3.org/2000/svg','g');
+          g.setAttribute('class','note'); g.dataset.midi=midi; g.dataset.string=s; g.dataset.fret=f;
+
+          const dot=document.createElementNS('http://www.w3.org/2000/svg','circle');
+          dot.setAttribute('cx',cx); dot.setAttribute('cy',cy); dot.setAttribute('r',12);
+          const fillColor=(scaleSel.value==='none')?'var(--note-neutral)':(scalePcs.has(pc)?'var(--note)':'var(--note-dim)');
+          dot.setAttribute('fill',fillColor);
+
+          const lbl=document.createElementNS('http://www.w3.org/2000/svg','text');
+          lbl.setAttribute('x',cx); lbl.setAttribute('y',cy+3);
+          lbl.setAttribute('text-anchor','middle'); lbl.setAttribute('font-size','11'); lbl.setAttribute('fill','#0b0e14');
+          lbl.textContent=(labelSel.value==='degree' && scaleSel.value!=='none')? degreeName(pc, rootPc) : noteName(pc, keySel.value);
+
+          g.appendChild(dot); g.appendChild(lbl); board.appendChild(g);
+
+          g.addEventListener('click',()=>{
+            playGuitarNotes([midi]);
+            if(g.classList.contains('marked')){ g.classList.remove('marked'); markedByString[s]=null; }
+            else{ if(markedByString[s]&&markedByString[s].isConnected){ markedByString[s].classList.remove('marked'); } g.classList.add('marked'); markedByString[s]=g; }
+            updatePlayBtns();
+          });
+        }
+      }
+      updatePlayBtns();
+    }
+
+    [keySel, scaleSel, labelSel].forEach(el=> el.addEventListener('change', buildBoard));
+    buildBoard();
+  </script>
+</body>
+</html>
