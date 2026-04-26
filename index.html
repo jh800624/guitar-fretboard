@@ -1,456 +1,1144 @@
 <!doctype html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>互動吉他指板（和絃辨識＋轉位＋快照）</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>互動吉他指板 + 專業 TAB 編輯器 v3</title>
+  <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.2/build/cjs/vexflow.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
-    :root{
-      --bg:#21242c; --panel:#161a22; --text:#e6e8ef; --muted:#98a2b3; --accent:#4f7cff;
-      --note:#d0d0d0;           /* 在音階內的音（灰階） */
-      --note-neutral:#bfc5cf;   /* 不顯示音階時的中性灰 */
-      --note-dim:#555b66;       /* 不在音階內的音（較淡） */
-      --ghost:#2a3040; --fret:#243042; --fret-alt:#1e222c; /* 指板底色（第2格起） */
-      --btn-bg:#111723; --btn-text:var(--text); --btn-border:#2a3344;
-      --card:#111723;
-    }
-    .light-theme{
-      --bg:#fdfdfd; --panel:#f0f0f0; --text:#222; --muted:#666; --accent:#4f7cff;
-      --note:#ffffff;          /* 亮色主題下在音階內更亮 */
-      --note-neutral:#dfe3ea;  /* 不顯示音階時更淺 */
-      --note-dim:#e7eaf0;      /* 不在音階內更淡 */
-      --ghost:#ddd; --fret:#bbb; --fret-alt:#e6e6e6;
-      --btn-bg:#fff; --btn-text:#222; --btn-border:#ccc; --card:#fff;
-    }
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap');
 
-    *{box-sizing:border-box}
-    body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans TC",sans-serif;transition:background .3s,color .3s}
-    header{padding:12px 16px;background:var(--panel);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;transition:background .3s}
-    .left-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-    label{font-size:12px;color:var(--muted);margin-right:6px}
-    select, button{accent-color:var(--accent);background:var(--btn-bg);color:var(--btn-text);border:1px solid var(--btn-border);border-radius:10px;padding:6px 8px;font-size:14px;transition:background .3s,color .3s,border .3s}
-    button{cursor:pointer}
-    button:disabled{opacity:.5;cursor:not-allowed}
-    main{padding:16px}
+  /* ── Notion-style palette ── */
+  :root{
+    /* Light mode is default (Notion is always light) */
+    --bg:#ffffff;
+    --panel:#f7f7f5;
+    --surface:#f1f1ef;
+    --border:#e9e9e7;
+    --border-strong:#d3d3cf;
+    --text:#37352f;
+    --muted:#9b9b97;
+    --accent:#37352f;
+    --link:#2383e2;
+    --tab-bg:#ffffff;
+    --note:#37352f; --note-neutral:#9b9b97; --note-dim:#e2e2df;
+    --fret:#d3d3cf; --fret-alt:#f7f7f5;
+    --btn-bg:#ffffff; --btn-text:#37352f; --btn-border:#e9e9e7; --card:#ffffff;
+    --mono:'JetBrains Mono',monospace;
+    /* action colors — muted, Notion-like */
+    --red:#eb5757; --green:#0f7b6c; --blue:#0b6bcb;
+    --red-t:rgba(235,87,87,.08); --green-t:rgba(15,123,108,.08); --blue-t:rgba(11,107,203,.08);
+  }
+  .dark-theme{
+    --bg:#191919;
+    --panel:#2f2f2f;
+    --surface:#373737;
+    --border:#454545;
+    --border-strong:#5a5a5a;
+    --text:#e6e6e5;
+    --muted:#999995;
+    --ash:#aaaaaa;
+    --tab-bg:#1f1f1f;
+    --fret:#454545; --fret-alt:#2a2a2a;
+    --btn-bg:#373737; --btn-text:#e6e6e5; --btn-border:#4a4a4a; --card:#2f2f2f;
+  }
 
-    .board-wrap{overflow:auto;border:1px solid #222a3a;border-radius:14px;background:linear-gradient(#0c0f16,#0c1018);transition:background .3s,border .3s}
-    .light-theme .board-wrap{background:linear-gradient(#fff,#f7f7f7);border-color:#ccc}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.4;height:100dvh;display:flex;flex-direction:column;overflow:hidden;transition:background .3s,color .3s}
 
-    svg{display:block;width:1600px;max-width:none}
-    .string{stroke:#b6bccb;stroke-width:1.6}
-    .fret{stroke:var(--fret);stroke-width:2}
-    .fret.first-fret{stroke-width:9}    /* 第一格加粗（視覺 nut） */
-    .fret-bg{fill:var(--fret-alt)}      /* 從第二格開始鋪底色 */
+  /* ── HEADER ── */
+  header{background:var(--bg);border-bottom:1px solid var(--border);display:flex;align-items:stretch;flex-shrink:0}
+  .brand{padding:10px 20px;display:flex;align-items:center;gap:10px;border-right:1px solid var(--border)}
+  .brand-title{font-size:.92rem;font-weight:700;color:var(--text);line-height:1.2;letter-spacing:-.3px}
+  .brand-sub{font-size:.62rem;color:var(--muted)}
+  .page-tabs{display:flex;align-items:flex-end;padding:0 10px;gap:2px}
+  .page-tab{padding:8px 14px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);font-size:.8rem;font-family:inherit;cursor:pointer;transition:all .12s;white-space:nowrap;border-radius:4px 4px 0 0}
+  .page-tab.active{color:var(--text);border-bottom-color:var(--text);font-weight:600}
+  .page-tab:hover:not(.active){color:var(--text);background:var(--surface)}
+  .header-right{margin-left:auto;display:flex;align-items:center;padding:0 14px;gap:8px}
 
-    .note{cursor:pointer;paint-order:stroke;stroke:#0b0e14;stroke-width:1.5;filter:drop-shadow(0 2px 4px rgba(0,0,0,.35))}
-    .note text{font-weight:600;font-size:11px;fill:#0b0e14}
-    .note.marked circle{fill:#f59e0b !important} /* 單弦唯一標記色 */
+  /* ── SHARED CONTROLS ── */
+  select,button,input[type=number],input[type=text]{background:var(--btn-bg);color:var(--btn-text);border:1px solid var(--btn-border);border-radius:4px;padding:5px 9px;font-size:.8rem;font-family:inherit;cursor:pointer;transition:all .12s;outline:none}
+  select:focus,input:focus{border-color:var(--border-strong);box-shadow:0 0 0 2px rgba(55,53,47,.06)}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  input[type=number]{width:62px}
+  label{font-size:.7rem;color:var(--muted);margin-right:4px}
+  .btn-accent{background:var(--text);color:#fff;border-color:var(--text);font-weight:600}
+  .btn-accent:hover:not(:disabled){background:#555250}
+  .dark-theme .btn-accent{background:#4a4a48;color:#e6e6e5;border-color:#555552}
+  .dark-theme .btn-accent:hover:not(:disabled){background:#565654}
+  .btn-ghost{background:transparent;border-color:transparent;color:var(--muted)}
+  .btn-ghost:hover{background:var(--surface);color:var(--text)}
+  .sep{width:1px;background:var(--border);align-self:stretch;margin:6px 4px}
 
-    .marker-dot{fill:#666;opacity:.4}   /* 品位定位點 */
+  /* ── PAGES ── */
+  .page{display:none;flex-direction:column;flex:1;overflow:hidden}
+  .page.active{display:flex}
 
-    .chord-panel{margin:16px 16px 0;padding:24px 18px;border:1px dashed var(--btn-border);border-radius:14px;background:rgba(255,255,255,0.03);color:var(--text);font-size:22px;line-height:1.7;min-height:110px;letter-spacing:.5px;text-align:center}
-    .light-theme .chord-panel{background:rgba(0,0,0,0.04)}
+  /* ══════════════════════════════════════════
+     PAGE 1: FRETBOARD
+  ══════════════════════════════════════════ */
+  .fb-toolbar{background:var(--panel);border-bottom:1px solid var(--border);padding:8px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex-shrink:0}
+  .fb-body{flex:1;overflow:auto;padding:14px}
+  .board-wrap{overflow:auto;border:1px solid var(--border);border-radius:6px;background:var(--bg);}
 
-    /* 快照區 */
-    .snap-actions{display:flex;gap:10px;align-items:center;margin:12px 16px}
-    .snapshots{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin:12px 16px}
-    .snap-card{background:var(--card);border:1px solid var(--btn-border);border-radius:12px;padding:10px 10px 12px}
-    .snap-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;color:var(--muted);font-size:12px}
-    .snap-title{font-weight:600;color:var(--text)}
-    .snap-del{border:none;background:transparent;color:var(--muted);cursor:pointer}
-    .snap-svg{display:block;width:100%;height:auto}
-    .snap-notes{font-size:12px;color:var(--muted);margin-top:6px}
+  svg#board{display:block;width:1600px;max-width:none}
+  .string{stroke:#c7c7c3;stroke-width:1.4}
+  .fret{stroke:var(--fret);stroke-width:2}
+  .fret.first-fret{stroke-width:7;stroke:#9b9b97}
+  .fret-bg{fill:var(--fret-alt)}
+  .dark-theme .string{stroke:#484846;stroke-width:1.2}
+  .dark-theme .fret{stroke:#383836}
+  .dark-theme .fret.first-fret{stroke:#666;stroke-width:5}
+  .dark-theme .marker-dot{fill:#383836;opacity:1}
+  .dark-theme .fret-bg{fill:#222220}
+  .dark-theme .board-wrap{background:#191919;}
+  .note{cursor:pointer}
+  .note circle{fill:#ffffff;stroke:#e0e0de;stroke-width:1.2}
+  .note text{font-weight:500;font-size:11px;fill:#c8c8c4}
+  .note.in-scale circle{stroke:#37352f;stroke-width:1.5}
+  .note.in-scale text{fill:#37352f;font-weight:600}
+  .note.marked circle{fill:#37352f !important;stroke:#37352f !important}
+  .note.marked text{fill:#ffffff !important}
+  /* dark theme note adjustments — fill set by JS, CSS handles stroke/text */
+  /* dark: circles match bg (invisible bg), in-scale show subtle outline + text */
+  .dark-theme .note circle{fill:#252523 !important;stroke:#3a3a38;stroke-width:1}
+  .dark-theme .note text{fill:#3a3a38}
+  .dark-theme .note.in-scale circle{fill:#252523 !important;stroke:#808078;stroke-width:1.2}
+  .dark-theme .note.in-scale text{fill:#b8b8b4;font-weight:500}
+  .dark-theme .note.marked circle{fill:#e0e0de !important;stroke:#e0e0de !important}
+  .dark-theme .note.marked text{fill:#191919 !important}
+  .marker-dot{fill:#c7c7c3;opacity:.6}
+  .chord-panel{margin:12px 14px 0;padding:12px 16px;border:1px solid var(--border);border-radius:4px;background:var(--panel);font-size:.9rem;line-height:1.8;min-height:60px;text-align:center;color:var(--text)}
+  .snap-hint{font-size:.7rem;color:var(--muted);padding:8px 14px 2px;display:block}
+  .snapshots{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin:4px 14px 14px;overflow-y:auto}
+  .snap-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:8px 10px 10px;transition:border-color .15s;cursor:pointer}
+  .snap-card:hover{border-color:var(--border-strong);background:var(--panel)}
+  .snap-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .snap-title{font-size:.8rem;font-weight:700;color:var(--text)}
+  .snap-del{border:none !important;background:transparent !important;color:var(--muted);font-size:.7rem;padding:2px 6px !important}
+  .snap-del:hover{color:#f87171 !important}
+  .snap-svg{display:block;width:100%;height:auto}
+  .snap-notes{font-size:.65rem;color:var(--muted);margin-top:4px;font-family:'Courier Prime',monospace}
+
+  /* ══════════════════════════════════════════
+     PAGE 2: PROFESSIONAL TAB EDITOR
+  ══════════════════════════════════════════ */
+  /* TAB page overrides: row layout (panel left + preview right) */
+  #page-tab-editor{ flex-direction:row !important; }
+
+  /* Left control panel */
+  .tab-panel{
+    width:260px;min-width:260px;
+    background:var(--panel);
+    border-right:1px solid var(--border);
+    overflow-y:auto;
+    display:flex;flex-direction:column;
+    height:100%;flex-shrink:0;
+  }
+  .tab-panel::-webkit-scrollbar{width:4px}
+  .tab-panel::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:2px}
+
+  .sec{padding:12px 14px;border-bottom:1px solid var(--border)}
+  .sec-title{
+    font-size:.68rem;font-weight:600;letter-spacing:.5px;
+    color:var(--muted);margin-bottom:10px;
+    display:flex;align-items:center;gap:6px;
+  }
+
+
+  /* fields */
+  .field{margin-bottom:8px}
+  .field label{display:block;font-size:.6rem;color:var(--muted);margin-bottom:3px;letter-spacing:.5px;margin-right:0}
+  .field input,.field select{width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 9px;font-family:var(--mono);font-size:.78rem;outline:none;transition:border-color .15s;cursor:auto}
+  .field input:focus,.field select:focus{border-color:var(--ash)}
+  .field-row{display:flex;gap:8px}
+  .field-row .field{flex:1}
+
+  /* cursor display */
+  .cursor-disp{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:2px;margin-bottom:10px}
+  .cval{display:flex;flex-direction:column;align-items:center;gap:2px}
+  .cval .cl{font-size:.52rem;color:var(--muted);letter-spacing:1px;text-transform:uppercase}
+  .cval .cv{font-size:1rem;font-weight:700;color:var(--text);line-height:1}
+
+  /* fret input */
+  .fret-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .fret-row label{font-size:.62rem;color:var(--muted);white-space:nowrap;flex-shrink:0;margin-right:0}
+  #fretInput{
+    width:60px;background:var(--surface);
+    border:1px solid var(--border-strong);
+    border-radius:4px;color:var(--text);
+    font-family:var(--mono);font-size:1.2rem;font-weight:700;
+    text-align:center;padding:4px 6px;outline:none;transition:all .12s;cursor:text;
+  }
+  #fretInput:focus{border-color:var(--text);box-shadow:0 0 0 2px rgba(55,53,47,.1)}
+  .fret-hint{font-size:.58rem;color:var(--muted)}
+
+  /* duration buttons */
+  .dur-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-bottom:10px}
+  .dur-btn{
+    background:var(--surface);border:1px solid var(--border);color:var(--muted);
+    border-radius:6px;padding:6px 2px 4px;cursor:pointer;transition:all .15s;
+    text-align:center;display:flex;flex-direction:column;align-items:center;gap:2px;
+    font-family:inherit;
+  }
+  .dur-btn .ds{font-size:1rem;line-height:1}
+  .dur-btn .dl{font-size:.48rem;color:var(--muted)}
+  .dur-btn.active{background:var(--text);border-color:var(--text);color:#fff}
+  .dur-btn.active .dl{color:rgba(255,255,255,.7)}
+  .dark-theme .dur-btn.active{background:#4a4a48;border-color:#555552;color:#e6e6e5}
+  .dark-theme .dur-btn.active .dl{color:rgba(230,230,229,.6)}
+  .dur-btn:not(.active):hover{background:var(--surface);border-color:var(--border-strong)}
+
+  /* action buttons */
+  .tbtn{
+    padding:6px 8px;border-radius:6px;border:1px solid var(--border);
+    background:var(--surface);color:var(--text);
+    font-family:var(--mono);font-size:.72rem;cursor:pointer;transition:all .15s;
+    text-align:center;white-space:nowrap;
+  }
+  .tbtn:hover{border-color:var(--ash);color:var(--ash)}
+  .tbtn.g{border-color:var(--border);color:var(--green);background:var(--green-t)}
+  .tbtn.g:hover{background:var(--green);color:#fff}
+  .tbtn.r{border-color:var(--border);color:var(--red);background:var(--red-t)}
+  .tbtn.r:hover{background:var(--red);color:#fff}
+  .tbtn.b{border-color:var(--border);color:var(--blue);background:var(--blue-t)}
+  .tbtn.b:hover{background:var(--blue);color:#fff}
+  .tbtn.full{width:100%;display:block;margin-bottom:6px}
+  .tbtn-row{display:flex;gap:6px;margin-bottom:6px}
+  .tbtn-row .tbtn{flex:1}
+
+  /* technique grid */
+  .tech-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+  .tech-btn{
+    background:var(--surface);border:1px solid var(--border);color:var(--muted);
+    border-radius:6px;padding:5px 4px 4px;
+    font-family:var(--mono);font-size:.8rem;cursor:pointer;transition:all .15s;
+    text-align:center;line-height:1.2;
+  }
+  .tech-btn span{display:block;font-size:.45rem;color:var(--muted)}
+  .tech-btn:hover{background:var(--surface);border-color:var(--border-strong)}
+  .tech-btn.active{background:var(--text);border-color:var(--text);color:#fff}
+
+  /* measure info */
+  .m-info{text-align:center;font-size:.65rem;color:var(--muted);background:var(--surface);border-radius:6px;padding:6px;margin-bottom:8px}
+  .m-info strong{color:var(--text);font-size:.9rem}
+
+  /* Right preview */
+  .tab-preview{
+    flex:1;min-width:0;overflow-y:auto;padding:18px 20px;
+    background:var(--bg);
+    display:flex;flex-direction:column;gap:12px;
+    height:100%;
+  }
+  .tab-preview::-webkit-scrollbar{width:6px}
+  .tab-preview::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+  .score-header{text-align:center}
+  .score-title{font-size:1.4rem;font-weight:700;color:var(--text);margin-bottom:2px;letter-spacing:-.5px}
+  .score-sub{font-size:.72rem;color:var(--muted);letter-spacing:1px}
+
+  .score-wrap{
+    background:#ffffff;border-radius:4px;
+    border:1px solid var(--border);
+    padding:20px 12px 12px;
+    overflow-x:auto;position:relative;
+  }
+  /* TAB score is always white regardless of theme */
+  .dark-theme .score-wrap{background:#ffffff;border-color:#e0e0e0;}
+
+  /* Cursor overlay */
+  #cursorOverlay{
+    position:absolute;pointer-events:none;
+    top:0;left:0;width:100%;height:100%;overflow:hidden;
+  }
+  /* Cursor overlay — always dark since score-wrap is always white */
+  .cur-col{
+    position:absolute;width:26px;border-radius:3px;
+    background:rgba(55,53,47,.08);
+    border:1.5px solid rgba(55,53,47,.4);
+    animation:curPulse 1s ease-in-out infinite;
+  }
+  .cur-dot{
+    position:absolute;width:12px;height:12px;border-radius:50%;
+    background:#37352f;border:2px solid #fff;
+    box-shadow:0 1px 4px rgba(0,0,0,.2);
+    transform:translate(-50%,-50%);
+    animation:curPulse 1s ease-in-out infinite;
+  }
+  .cur-label{
+    position:absolute;background:#37352f;color:#fff;
+    font-family:var(--mono);font-size:9px;font-weight:600;
+    padding:2px 6px;border-radius:3px;white-space:nowrap;
+    transform:translateX(-50%);letter-spacing:.3px;
+  }
+  @keyframes curPulse{0%,100%{opacity:1}50%{opacity:.6}}
+
+  /* Status bar */
+  .statusbar{
+    background:var(--panel);border-top:1px solid var(--border);
+    padding:5px 20px;font-size:.62rem;color:var(--muted);
+    display:flex;gap:14px;align-items:center;flex-shrink:0;
+    font-family:var(--mono);
+  }
+  .kb{color:var(--text);font-weight:600;margin-right:2px;background:var(--surface);padding:1px 4px;border-radius:3px;border:1px solid var(--border)}
+  .status-msg{margin-left:auto}
+  .st-ok{color:var(--muted)}.st-err{color:var(--red)}.st-warn{color:#c77d0a}
   </style>
 </head>
 <body>
-  <header>
-    <div class="left-controls">
-      <div>
-        <label>Key</label>
-        <select id="keySel">
-          <option>C</option><option>G</option><option>D</option><option>A</option><option>E</option>
-          <option>B</option><option>F#</option><option>Db</option><option>Ab</option><option>Eb</option>
-          <option>Bb</option><option>F</option>
-        </select>
-      </div>
-      <div>
-        <label>Scale</label>
-        <select id="scaleSel">
-          <option value="major" selected>Major</option>
-          <option value="natural_minor">Natural Minor</option>
-          <option value="penta_major">Pentatonic Major</option>
-          <option value="penta_minor">Pentatonic Minor</option>
-          <option value="none">（不顯示）</option>
-        </select>
-      </div>
-      <div>
-        <label>顯示</label>
-        <select id="labelSel">
-          <option value="note" selected>音名</option>
-          <option value="degree">度數</option>
-        </select>
-      </div>
-      <button id="strumUpBtn" disabled>播放和弦</button>
-      <button id="saveSnapBtn" disabled>儲存快照</button>
-    </div>
-    <button id="themeToggle" title="切換明亮/暗色" style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0;border-radius:50%">
-      <svg id="themeIcon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-        <path d="M12 4.5a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15zM12 2v2m0 16v2m10-10h-2M4 12H2m15.364-7.364l-1.414 1.414M6.05 17.95l-1.414 1.414m0-13.364l1.414 1.414m11.314 11.314l1.414 1.414" />
-      </svg>
-    </button>
-  </header>
 
-  <main>
+<!-- ══ HEADER ══ -->
+<header>
+  <div class="brand">
+    <div>
+      <div class="brand-title">Guitar Tool</div>
+      <div class="brand-sub">Fretboard · TAB Editor</div>
+    </div>
+  </div>
+  <nav class="page-tabs">
+    <button class="page-tab active" data-target="page-fretboard">指板工具</button>
+    <button class="page-tab"        data-target="page-tab-editor">TAB 編輯器</button>
+  </nav>
+  <div class="header-right">
+    <button id="themeToggle" class="btn-ghost" title="明亮/暗色" style="font-size:.72rem;padding:5px 10px">明暗</button>
+  </div>
+</header>
+
+<!-- ══ PAGE 1: FRETBOARD ══ -->
+<div class="page active" id="page-fretboard">
+  <div class="fb-toolbar">
+    <div><label>Key</label>
+      <select id="keySel">
+        <option>C</option><option>G</option><option>D</option><option>A</option><option>E</option>
+        <option>B</option><option>F#</option><option>Db</option><option>Ab</option><option>Eb</option>
+        <option>Bb</option><option>F</option>
+      </select>
+    </div>
+    <div><label>Scale</label>
+      <select id="scaleSel">
+        <option value="major" selected>Major</option>
+        <option value="natural_minor">Natural Minor</option>
+        <option value="penta_major">Pentatonic Major</option>
+        <option value="penta_minor">Pentatonic Minor</option>
+        <option value="none">（不顯示）</option>
+      </select>
+    </div>
+    <div><label>顯示</label>
+      <select id="labelSel">
+        <option value="note" selected>音名</option>
+        <option value="degree">級數</option>
+      </select>
+    </div>
+    <div class="sep"></div>
+    <button id="strumUpBtn" class="btn-accent" disabled>播放和弦</button>
+    <button id="saveSnapBtn" disabled>儲存快照</button>
+  </div>
+  <div class="fb-body">
     <div class="board-wrap">
       <svg id="board" viewBox="0 0 1600 320" aria-label="guitar fretboard"></svg>
     </div>
     <div class="chord-panel" id="chordPanel">目前未選音。點選各弦上的圓點來標記，這裡會顯示和絃。</div>
-
-    <div class="snap-actions">
-      <span style="color:var(--muted);font-size:12px">把目前標記的發聲位置存成和絃圖</span>
-    </div>
+    <span class="snap-hint">把目前標記的發聲位置存成和絃圖</span>
     <div class="snapshots" id="snapshots"></div>
-  </main>
+  </div>
+</div>
 
-  <script>
-    /* ===== 基本資料 ===== */
-    const NOTES_SHARP=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
-    const NOTES_FLAT =["C","Db","D","Eb","E","F","Gb","G","Ab","A","Bb","B"];
-    const SCALES={major:[0,2,4,5,7,9,11],natural_minor:[0,2,3,5,7,8,10],penta_major:[0,2,4,7,9],penta_minor:[0,3,5,7,10]};
-    const STANDARD_TUNING=["E4","B3","G3","D3","A2","E2"]; // 1→6 弦（上到下）
+<!-- ══ PAGE 2: TAB EDITOR ══ -->
+<div class="page" id="page-tab-editor">
 
-    /* ===== 工具函式 ===== */
-    let audioCtx=null; function ensureAudio(){ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }
-    const midiToFreq=m=>2**((m-69)/12)*440; const norm=n=>((n%12)+12)%12;
-    function preferAccidental(key){ const sharp=["G","D","A","E","B","F#","C#"], flat=["F","Bb","Eb","Ab","Db","Gb","Cb"]; if(sharp.includes(key))return"sharp"; if(flat.includes(key))return"flat"; return"sharp"; }
-    function noteName(pc,key){ return (preferAccidental(key)==="flat"?NOTES_FLAT:NOTES_SHARP)[pc]; }
-    function degreeName(pc,rootPc){ const DEG=["1","b2","2","b3","3","4","b5","5","b6","6","b7","7"]; return DEG[norm(pc-rootPc)]; }
+  <!-- Left panel -->
+  <div class="tab-panel">
 
-    /* ===== DOM ===== */
-    const board=document.getElementById('board');
-    const keySel=document.getElementById('keySel');
-    const scaleSel=document.getElementById('scaleSel');
-    const labelSel=document.getElementById('labelSel');
-    const upBtn=document.getElementById('strumUpBtn');
-    const saveSnapBtn=document.getElementById('saveSnapBtn');
-    const themeToggle=document.getElementById('themeToggle');
-    const themeIcon=document.getElementById('themeIcon');
-    const chordPanel=document.getElementById('chordPanel');
-    const snapshots=document.getElementById('snapshots');
+    <div class="sec">
+      <div class="sec-title">曲目資訊</div>
+      <div class="field"><label>歌曲名稱</label><input type="text" id="songTitle" value="Untitled"></div>
+      <div class="field"><label>演奏者</label><input type="text" id="artistName" placeholder="Artist"></div>
+      <div class="field-row">
+        <div class="field"><label>BPM</label><input type="number" id="bpmInput" value="120" min="20" max="400" style="width:100%"></div>
+        <div class="field"><label>拍號</label>
+          <select id="timeSigSel" style="width:100%">
+            <option value="4/4" selected>4/4</option>
+            <option value="3/4">3/4</option>
+            <option value="6/8">6/8</option>
+          </select>
+        </div>
+      </div>
+    </div>
 
-    function updateThemeIcon(){
-      if(document.body.classList.contains('light-theme')){
-        themeIcon.innerHTML='<path d="M21.64 13.65A9 9 0 0 1 10.35 2.36 7 7 0 1 0 21.64 13.65z" />';
-      }else{
-        themeIcon.innerHTML='<path d="M12 4.5a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15zM12 2v2m0 16v2m10-10h-2M4 12H2m15.364-7.364l-1.414 1.414M6.05 17.95l-1.414 1.414m0-13.364l1.414 1.414m11.314 11.314l1.414 1.414" />';
-      }
+    <div class="sec">
+      <div class="sec-title">音符輸入</div>
+      <div class="cursor-disp">
+        <div class="cval"><span class="cl">MEASURE</span><span class="cv" id="curM">1</span></div>
+        <div class="cval"><span class="cl">BEAT</span><span class="cv" id="curB">1</span></div>
+        <div class="cval"><span class="cl">STRING</span><span class="cv" id="curS">1</span></div>
+      </div>
+      <div class="fret-row">
+        <label>格數</label>
+        <input type="text" id="fretInput" placeholder="0" maxlength="2" inputmode="numeric">
+        <span class="fret-hint">0 – 24</span>
+      </div>
+      <div class="sec-title" style="margin-bottom:6px">音符時值</div>
+      <div class="dur-grid">
+        <button class="dur-btn" data-dur="w"><span class="ds">𝅝</span><span class="dl">全</span></button>
+        <button class="dur-btn" data-dur="h"><span class="ds">𝅗𝅥</span><span class="dl">二分</span></button>
+        <button class="dur-btn active" data-dur="q"><span class="ds">♩</span><span class="dl">四分</span></button>
+        <button class="dur-btn" data-dur="8"><span class="ds">♪</span><span class="dl">八分</span></button>
+        <button class="dur-btn" data-dur="16"><span class="ds">𝅘𝅥𝅯</span><span class="dl">十六</span></button>
+      </div>
+      <div class="tbtn-row">
+        <button class="tbtn g" id="btnEnter">輸入</button>
+        <button class="tbtn"   id="btnRest">休止</button>
+        <button class="tbtn r" id="btnDelete">刪除</button>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">吉他技巧</div>
+      <div class="tech-grid">
+        <button class="tech-btn" data-tech="h">h<span>hammer</span></button>
+        <button class="tech-btn" data-tech="p">p<span>pull</span></button>
+        <button class="tech-btn" data-tech="slide_up">/<span>slide↑</span></button>
+        <button class="tech-btn" data-tech="slide_down">\<span>slide↓</span></button>
+        <button class="tech-btn" data-tech="bend">b<span>bend</span></button>
+        <button class="tech-btn" data-tech="vibrato">~<span>vibrato</span></button>
+        <button class="tech-btn" data-tech="mute">x<span>mute</span></button>
+        <button class="tech-btn r" id="btnClearTech">清除<span>clear</span></button>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">小節管理</div>
+      <div class="m-info">共 <strong id="measureCount">1</strong> 小節</div>
+      <div class="tbtn-row">
+        <button class="tbtn g" id="btnAddM">新增小節</button>
+        <button class="tbtn r" id="btnDelM">刪除末節</button>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">匯出</div>
+      <button class="tbtn b full" id="btnPDF">匯出 PDF</button>
+      <button class="tbtn r full" id="btnClearAll">清除全部</button>
+    </div>
+
+  </div><!-- /tab-panel -->
+
+  <!-- Right preview -->
+  <div class="tab-preview" id="previewArea">
+    <div class="score-header">
+      <div class="score-title" id="dispTitle">Untitled</div>
+      <div class="score-sub"   id="dispSub">♩ = 120</div>
+    </div>
+    <div class="score-wrap">
+      <div id="scoreContainer"></div>
+      <div id="cursorOverlay"></div>
+    </div>
+  </div>
+
+</div><!-- /page-tab-editor -->
+
+<!-- Status bar: only shown in TAB editor page -->
+<div class="statusbar" id="globalStatusbar">
+  <span><span class="kb">←→</span>移動</span>
+  <span><span class="kb">↑↓</span>換弦</span>
+  <span><span class="kb">0-9</span>格數</span>
+  <span><span class="kb">Enter</span>確認</span>
+  <span><span class="kb">Del</span>刪除</span>
+  <span><span class="kb">h p s b ~ x r</span>技巧/休止</span>
+  <span class="status-msg st-ok" id="statusMsg">Ready</span>
+</div>
+
+<script>
+/* ════════════════════════════════════════════════════════
+   PAGE SWITCHING
+════════════════════════════════════════════════════════ */
+document.querySelectorAll('.page-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.page-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.target).classList.add('active');
+    if (btn.dataset.target === 'page-tab-editor') {
+      setTimeout(() => { renderScore(); drawCursorOverlay(); }, 50);
     }
-    themeToggle.addEventListener('click',()=>{ document.body.classList.toggle('light-theme'); updateThemeIcon(); });
-    updateThemeIcon();
-
-    let markedByString=[]; // 單弦唯一標記（0=1弦 ... 5=6弦）
-    function getMarkedMidis(){ return markedByString.filter(Boolean).map(g=>+g.dataset.midi); }
-
-    // 取得目前選取：所有音名的 pitch classes 與「貝斯音」（從第六弦往上找到的第一顆）
-    function getSelectionInfo(){
-      const pcs = Array.from(new Set(getMarkedMidis().map(m=> norm(m))));
-      let bassPc = null;
-      for(let s=5; s>=0; s--){
-        const g = markedByString[s];
-        if(g && g.dataset.midi){ bassPc = norm(+g.dataset.midi); break; }
-      }
-      return { pcs, bassPc };
-    }
-
-    /* ===== 音色 / 播放 ===== */
-    function playGuitarNotes(midis,delay=0){
-      ensureAudio();
-      midis.forEach((m,i)=>{
-        const t=audioCtx.currentTime+i*delay, f0=midiToFreq(m);
-        const osc=audioCtx.createOscillator(), g=audioCtx.createGain();
-        const real=new Float32Array([0,1.0,0.45,0.22,0.11,0.06]), imag=new Float32Array(real.length);
-        const wave=audioCtx.createPeriodicWave(real,imag);
-        osc.setPeriodicWave(wave);
-        osc.frequency.setValueAtTime(f0,t);
-        g.gain.setValueAtTime(0.0001,t);
-        g.gain.exponentialRampToValueAtTime(0.5,t+0.01);
-        g.gain.exponentialRampToValueAtTime(0.0001,t+1.0);
-        osc.connect(g); g.connect(audioCtx.destination);
-        osc.start(t); osc.stop(t+1.1);
-      });
-    }
-    function strumUp(){ playGuitarNotes(getMarkedMidis().reverse(),0.04); }
-    upBtn.addEventListener('click',strumUp);
-
-    /* ===== 和絃模板 ===== */
-    const CHORD_TEMPLATES=[
-      {q:'5',iv:[0,7]},{q:'maj',iv:[0,4,7]},{q:'m',iv:[0,3,7]},{q:'aug',iv:[0,4,8]},{q:'dim',iv:[0,3,6]},
-      {q:'sus2',iv:[0,2,7]},{q:'sus4',iv:[0,5,7]},
-      {q:'7',iv:[0,4,7,10]},{q:'maj7',iv:[0,4,7,11]},{q:'m7',iv:[0,3,7,10]},{q:'m7b5',iv:[0,3,6,10]},{q:'dim7',iv:[0,3,6,9]},
-      {q:'6',iv:[0,4,7,9]},{q:'min6',iv:[0,3,7,9]},{q:'add9',iv:[0,4,7,14]},{q:'maj6/9',iv:[0,4,7,9,14]},
-      {q:'9',iv:[0,4,7,10,14]},{q:'maj9',iv:[0,4,7,11,14]},{q:'min9',iv:[0,3,7,10,14]},{q:'11',iv:[0,4,7,10,14,17]},{q:'13',iv:[0,4,7,10,14,21]}
-    ];
-
-    function chordSetFor(rootPc,iv){ return new Set(iv.map(n=>norm(rootPc+n))); }
-    function scoreFit(selSet,chordSet){ let inter=0; selSet.forEach(pc=>{ if(chordSet.has(pc)) inter++; }); const missing=chordSet.size-inter; const extra=selSet.size-inter; return {missing,extra,inter,score:missing*10+extra*3-inter*0.1}; }
-    function degreeLabel(n){ if(n>=21)return'13'; if(n>=17)return'11'; if(n>=14)return'9'; const m=((n%12)+12)%12; const map={0:'1',1:'♭2',2:'2',3:'♭3',4:'3',5:'4',6:'♭5',7:'5',8:'♯5',9:'6',10:'♭7',11:'7'}; return map[m]||'?'; }
-
-    function findBestChord(selPcs, keyName, bassPc){
-      if(selPcs.length===0) return null;
-      const selSet = new Set(selPcs);
-      let best = null;
-      for(let root=0; root<12; root++){
-        for(const tpl of CHORD_TEMPLATES){
-          const cset = chordSetFor(root, tpl.iv);
-          const {missing,extra,inter,score} = scoreFit(selSet, cset);
-          let total = score;
-          // 根音偏好：若有低音（靠近第 6 弦的標記音），優先當成根音
-          if(bassPc !== null){
-            if(root === bassPc) total -= 6; else if(!cset.has(bassPc)) total += 6; else total += 2;
-          }
-          if(!best || total < best.total){ best = {root,q:tpl.q,set:cset,missing,extra,inter,total,iv:tpl.iv}; }
-        }
-      }
-      if(!best) return null;
-      const rootName = noteName(best.root, keyName);
-      const chordTones = Array.from(best.set).sort((a,b)=>a-b).map(pc=> noteName(pc, keyName));
-      const missingNames = Array.from(best.set).filter(pc=> !selSet.has(pc)).map(pc=> noteName(pc, keyName));
-      const extraNames   = Array.from(selSet).filter(pc=> !best.set.has(pc)).map(pc=> noteName(pc, keyName));
-      let label = `${rootName}${best.q}`;
-      if(bassPc !== null && best.set.has(bassPc) && bassPc !== best.root){
-        const bassName = noteName(bassPc, keyName);
-        label = `${label}/${bassName}`; // 轉位標示
-      }
-      return { label, chordTones, missingNames, extraNames, intervals: best.iv, root: best.root, bassPc };
-    }
-
-    function updateChordPanel(){
-      const { pcs, bassPc } = getSelectionInfo();
-      if(pcs.length===0){ chordPanel.textContent='目前未選音。點選各弦上的圓點來標記，這裡會顯示和絃。'; saveSnapBtn.disabled=true; return; }
-      const best = findBestChord(pcs, keySel.value, bassPc);
-      if(!best){ chordPanel.textContent='找不到合適的和絃。'; saveSnapBtn.disabled=true; return; }
-      const parts=[];
-      parts.push(`和絃：${best.label}`);
-      const chordToneLine=(labelSel.value==='degree')? best.intervals.map(deg=>degreeLabel(deg)).join(' ') : best.chordTones.join(' ');
-      parts.push(`和弦音：${chordToneLine}`);
-      if(best.missingNames?.length) parts.push(`少：${best.missingNames.join(' ')}`);
-      if(best.extraNames?.length)   parts.push(`多：${best.extraNames.join(' ')}`);
-      chordPanel.textContent=parts.join('　|　');
-      saveSnapBtn.disabled=false;
-    }
-
-    function updatePlayBtns(){ const has= getMarkedMidis().length>0; upBtn.disabled=!has; updateChordPanel(); }
-
-    /* ===== 快照：把目前標記轉成小型和絃圖（5 品視窗） ===== */
-    function collectMarkedState(){
-      const out=[];
-      for(let s=0;s<6;s++){
-        const g=markedByString[s];
-        if(g){ out.push({ string:s, fret:+g.dataset.fret, midi:+g.dataset.midi }); }
-        else{ out.push({ string:s, fret:null, midi:null }); }
-      }
-      return out;
-    }
-    function pcFromMidi(m){ return norm(m); }
-
-function renderChordChart(state, label){
-  // 取出所有被標記的品格
-  const allFrets = state.map(s => s.fret).filter(f => f !== null);
-  const fretted  = allFrets.filter(f => f > 0);
-  const hasOpen  = state.some(s => s.fret === 0);
-
-  // 視窗起始格：
-  // - 有按弦：從最小按弦品開始
-  // - 全開放/全 X：從 0
-  let winStart = 0;
-  if(fretted.length > 0) winStart = Math.min(...fretted);
-
-  // 視窗結束格：只顯示「實際用到」的最高按弦品
-  // - 若沒有按弦（只有開放弦/全 X）：讓最高 = winStart (0)
-  let winEnd = winStart;
-  if(fretted.length > 0) winEnd = Math.max(...fretted);
-
-  // 要畫幾格：只畫會用到的格數（不多畫空格）
-  // 例：只用到 2、3 品 → winStart=2 winEnd=3 → winFrets=2（只畫兩格）
-  // 至少顯示 3 格，避免和弦圖過扁
-  // 至少顯示 3 格，避免某些和絃只顯示 1~2 格看起來太擠
-  const winFrets = Math.max(3, winEnd - winStart + 1);
-
-  const W = 200, H = 220;
-  const pad = 18, titleH = 28;
-  const gridW = W - 2 * pad;
-  const gridH = H - 2 * pad - titleH;
-  const stringGap = gridW / 5;
-  const fretGap   = gridH / winFrets;
-
-  let svg =
-    `<svg class="snap-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">` +
-    `<rect x="0" y="0" width="${W}" height="${H}" rx="12" ry="12" fill="none" stroke="var(--btn-border)"/>` +
-    `<text x="${W/2}" y="${pad-4}" text-anchor="middle" font-size="14" font-weight="700" fill="currentColor">${label || ''}</text>`;
-
-  /* ===== 弦線（左→右：6 → 1） ===== */
-  for(let i = 0; i < 6; i++){
-    const x = pad + i * stringGap;
-    svg += `<line x1="${x}" y1="${pad}" x2="${x}" y2="${pad + gridH}" stroke="currentColor" stroke-opacity="0.35" stroke-width="1.5"/>`;
-  }
-
-  /* ===== 品絲與上弦枕 ===== */
-  // 注意：我們仍然用「上方第一條線」當作 nut/上邊界。
-  // - 有開放弦：第一條線畫粗（上弦枕）
-  // - 沒有開放弦：第一條線就是一般品絲（不額外多畫空格）
-  for(let f = 0; f <= winFrets; f++){
-    const y = pad + f * fretGap;
-    const isNut = (hasOpen && f === 0);
-    const thick = isNut ? 6 : 2;
-    svg += `<line x1="${pad}" y1="${y}" x2="${pad + gridW}" y2="${y}" stroke="currentColor" stroke-opacity="0.45" stroke-width="${thick}"/>`;
-  }
-
-  // 左側起始格數字：
-  // - 沒有開放弦時，顯示起始品位（只顯示數字，不加 fr）
-  // - 有開放弦時，為了避免「nut + 起始數字」視覺混亂，維持不顯示
-  if(!hasOpen && winStart > 0){
-    svg += `<text x="${pad - 6}" y="${pad + fretGap * 0.9}" text-anchor="end" font-size="12" fill="currentColor">${winStart}</text>`;
-  }
-
-  /* ===== 音符標記 ===== */
-  state.forEach(s => {
-    const col = 5 - s.string; // 6弦在左
-    const x = pad + col * stringGap;
-
-    if(s.fret === null){
-      svg += `<text x="${x}" y="${pad - 6}" text-anchor="middle" font-size="12" fill="currentColor" opacity="0.6">x</text>`;
-      return;
-    }
-
-    if(s.fret === 0){
-      // 開放弦圓圈：固定畫在上弦枕上方
-      svg += `<circle cx="${x}" cy="${pad - 8}" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/>`;
-      return;
-    }
-
-    // 按弦：置中到對應格（以 winStart 作為第一格）
-    const rel = s.fret - winStart + 0.5;
-    const y = pad + rel * fretGap;
-    svg += `<circle cx="${x}" cy="${y}" r="8" fill="currentColor" fill-opacity="0.85"/>`;
+    updateStatusbarVisibility();
   });
+});
 
-  svg += `</svg>`;
-  return svg;
+/* ════════════════════════════════════════════════════════
+   THEME
+════════════════════════════════════════════════════════ */
+const themeToggle = document.getElementById('themeToggle');
+function updateThemeIcon() {
+  const isDark = document.body.classList.contains('dark-theme');
+  themeToggle.textContent = isDark ? '淺色' : '深色';
+}
+themeToggle.addEventListener('click', () => {
+  document.body.classList.toggle('dark-theme');
+  updateThemeIcon();
+  buildBoard();
+  if (document.getElementById('page-tab-editor').classList.contains('active')) renderScore();
+});
+updateThemeIcon();
+
+// Show/hide statusbar based on active page
+function updateStatusbarVisibility() {
+  const sb = document.getElementById('globalStatusbar');
+  if (sb) sb.style.display = document.getElementById('page-tab-editor').classList.contains('active') ? 'flex' : 'none';
+}
+updateStatusbarVisibility();
+
+/* ════════════════════════════════════════════════════════
+   FRETBOARD TOOL (original logic, unchanged)
+════════════════════════════════════════════════════════ */
+const NOTES_SHARP=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const NOTES_FLAT =["C","Db","D","Eb","E","F","Gb","G","Ab","A","Bb","B"];
+const SCALES={major:[0,2,4,5,7,9,11],natural_minor:[0,2,3,5,7,8,10],penta_major:[0,2,4,7,9],penta_minor:[0,3,5,7,10]};
+const STANDARD_TUNING=["E4","B3","G3","D3","A2","E2"];
+
+let audioCtx=null;
+function ensureAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();}
+const midiToFreq=m=>2**((m-69)/12)*440;
+const norm=n=>((n%12)+12)%12;
+function preferAccidental(k){const s=["G","D","A","E","B","F#","C#"],f=["F","Bb","Eb","Ab","Db","Gb","Cb"];return s.includes(k)?"sharp":f.includes(k)?"flat":"sharp";}
+function noteName(pc,k){return(preferAccidental(k)==="flat"?NOTES_FLAT:NOTES_SHARP)[pc];}
+function degreeName(pc,rpc){return["1","b2","2","b3","3","4","b5","5","b6","6","b7","7"][norm(pc-rpc)];}
+
+const board=document.getElementById('board');
+const keySel=document.getElementById('keySel');
+const scaleSel=document.getElementById('scaleSel');
+const labelSel=document.getElementById('labelSel');
+const upBtn=document.getElementById('strumUpBtn');
+const saveSnapBtn=document.getElementById('saveSnapBtn');
+const chordPanel=document.getElementById('chordPanel');
+const snapshots=document.getElementById('snapshots');
+
+let markedByString=[];
+function getMarkedMidis(){return markedByString.filter(Boolean).map(g=>+g.dataset.midi);}
+function getSelectionInfo(){
+  const pcs=Array.from(new Set(getMarkedMidis().map(m=>norm(m))));
+  let bassPc=null;
+  for(let s=5;s>=0;s--){const g=markedByString[s];if(g&&g.dataset.midi){bassPc=norm(+g.dataset.midi);break;}}
+  return{pcs,bassPc};
+}
+function playGuitarNotes(midis,delay=0){
+  ensureAudio();
+  midis.forEach((m,i)=>{
+    const t=audioCtx.currentTime+i*delay,f0=midiToFreq(m);
+    const osc=audioCtx.createOscillator(),g=audioCtx.createGain();
+    const real=new Float32Array([0,1,.45,.22,.11,.06]),imag=new Float32Array(real.length);
+    osc.setPeriodicWave(audioCtx.createPeriodicWave(real,imag));
+    osc.frequency.setValueAtTime(f0,t);
+    g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.5,t+.01);g.gain.exponentialRampToValueAtTime(.0001,t+1);
+    osc.connect(g);g.connect(audioCtx.destination);osc.start(t);osc.stop(t+1.1);
+  });
+}
+upBtn.addEventListener('click',()=>playGuitarNotes(getMarkedMidis().reverse(),.04));
+
+const CHORD_TEMPLATES=[
+  {q:'5',iv:[0,7]},{q:'maj',iv:[0,4,7]},{q:'m',iv:[0,3,7]},{q:'aug',iv:[0,4,8]},{q:'dim',iv:[0,3,6]},
+  {q:'sus2',iv:[0,2,7]},{q:'sus4',iv:[0,5,7]},{q:'7',iv:[0,4,7,10]},{q:'maj7',iv:[0,4,7,11]},
+  {q:'m7',iv:[0,3,7,10]},{q:'m7b5',iv:[0,3,6,10]},{q:'dim7',iv:[0,3,6,9]},
+  {q:'6',iv:[0,4,7,9]},{q:'min6',iv:[0,3,7,9]},{q:'add9',iv:[0,4,7,14]},{q:'maj6/9',iv:[0,4,7,9,14]},
+  {q:'9',iv:[0,4,7,10,14]},{q:'maj9',iv:[0,4,7,11,14]},{q:'min9',iv:[0,3,7,10,14]},{q:'11',iv:[0,4,7,10,14,17]},{q:'13',iv:[0,4,7,10,14,21]}
+];
+function chordSetFor(rpc,iv){return new Set(iv.map(n=>norm(rpc+n)));}
+function scoreFit(sel,cs){let inter=0;sel.forEach(pc=>{if(cs.has(pc))inter++;});return{score:(cs.size-inter)*10+(sel.size-inter)*3-inter*.1};}
+function degreeLabel(n){if(n>=21)return'13';if(n>=17)return'11';if(n>=14)return'9';return({0:'1',1:'♭2',2:'2',3:'♭3',4:'3',5:'4',6:'♭5',7:'5',8:'♯5',9:'6',10:'♭7',11:'7'})[norm(n)]||'?';}
+
+function findBestChord(selPcs,keyName,bassPc){
+  if(!selPcs.length)return null;
+  const selSet=new Set(selPcs);let best=null;
+  for(let root=0;root<12;root++){
+    for(const tpl of CHORD_TEMPLATES){
+      const cset=chordSetFor(root,tpl.iv);
+      let total=scoreFit(selSet,cset).score;
+      if(bassPc!==null){if(root===bassPc)total-=6;else if(!cset.has(bassPc))total+=6;else total+=2;}
+      if(!best||total<best.total){
+        const rootName=noteName(root,keyName);
+        const chordTones=Array.from(cset).sort((a,b)=>a-b).map(pc=>noteName(pc,keyName));
+        const missingNames=Array.from(cset).filter(pc=>!selSet.has(pc)).map(pc=>noteName(pc,keyName));
+        const extraNames=Array.from(selSet).filter(pc=>!cset.has(pc)).map(pc=>noteName(pc,keyName));
+        let label=`${rootName}${tpl.q}`;
+        if(bassPc!==null&&cset.has(bassPc)&&bassPc!==root)label+=`/${noteName(bassPc,keyName)}`;
+        best={root,q:tpl.q,set:cset,total,iv:tpl.iv,label,chordTones,missingNames,extraNames};
+      }
+    }
+  }
+  return best;
 }
 
+function updateChordPanel(){
+  const{pcs,bassPc}=getSelectionInfo();
+  if(!pcs.length){chordPanel.textContent='目前未選音。點選各弦上的圓點來標記，這裡會顯示和絃。';saveSnapBtn.disabled=true;return;}
+  const best=findBestChord(pcs,keySel.value,bassPc);
+  if(!best){chordPanel.textContent='找不到合適的和絃。';saveSnapBtn.disabled=true;return;}
+  const parts=[`和絃：${best.label}`];
+  const ctLine=(labelSel.value==='degree')?best.iv.map(d=>degreeLabel(d)).join(' '):best.chordTones.join(' ');
+  parts.push(`和弦音：${ctLine}`);
+  if(best.missingNames?.length)parts.push(`少：${best.missingNames.join(' ')}`);
+  if(best.extraNames?.length)parts.push(`多：${best.extraNames.join(' ')}`);
+  chordPanel.textContent=parts.join('　|　');saveSnapBtn.disabled=false;
+}
+function updatePlayBtns(){upBtn.disabled=!getMarkedMidis().length;updateChordPanel();}
 
-    function handleSaveSnapshot(){
-      const { pcs, bassPc } = getSelectionInfo(); if(pcs.length===0) return;
-      const best = findBestChord(pcs, keySel.value, bassPc);
-      const state = collectMarkedState();
-      const label = best ? best.label : '未命名';
-      const svg = renderChordChart(state, label);
-      const notes = state.map((s)=>{ if(s.fret===null || s.midi==null) return 'x'; return noteName(pcFromMidi(s.midi), keySel.value); });
-      const card = document.createElement('div'); card.className='snap-card';
-      card.innerHTML = `
-        <div class="snap-head">
-          <span class="snap-title">${label}</span>
-          <button class="snap-del" title="刪除">刪除</button>
-        </div>
-        ${svg}
-        <div class="snap-notes">弦(6→1)：${notes.slice().reverse().join(' · ')}</div>
-      `;
-      card.querySelector('.snap-del').addEventListener('click',()=> card.remove());
-      card.addEventListener('click',(e)=>{ if(e.target.classList.contains('snap-del')) return; const midis = state.filter(s=>s.midi).map(s=>s.midi).reverse(); if(midis.length) playGuitarNotes(midis,0.04); });
-      snapshots.prepend(card);
+function collectMarkedState(){
+  return Array.from({length:6},(_,s)=>{const g=markedByString[s];return g?{string:s,fret:+g.dataset.fret,midi:+g.dataset.midi}:{string:s,fret:null,midi:null};});
+}
+
+function renderChordChart(state,label){
+  const fretted=state.map(s=>s.fret).filter(f=>f!==null&&f>0);
+  const hasOpen=state.some(s=>s.fret===0);
+  let winStart=fretted.length?Math.min(...fretted):0;
+  let winEnd=fretted.length?Math.max(...fretted):0;
+  const winFrets=Math.max(3,winEnd-winStart+1);
+  const W=200,H=220,pad=18;
+  const gridW=W-2*pad,gridH=H-2*pad-20;
+  const sg=gridW/5,fg=gridH/winFrets;
+  let svg=`<svg class="snap-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+<rect x="0" y="0" width="${W}" height="${H}" rx="12" fill="none" stroke="var(--btn-border)"/>
+<text x="${W/2}" y="${pad-4}" text-anchor="middle" font-size="14" font-weight="700" fill="currentColor">${label||''}</text>`;
+  for(let i=0;i<6;i++){const x=pad+i*sg;svg+=`<line x1="${x}" y1="${pad}" x2="${x}" y2="${pad+gridH}" stroke="currentColor" stroke-opacity="0.3" stroke-width="1.5"/>`;}
+  for(let f=0;f<=winFrets;f++){const y=pad+f*fg,nut=hasOpen&&f===0;svg+=`<line x1="${pad}" y1="${y}" x2="${pad+gridW}" y2="${y}" stroke="currentColor" stroke-opacity="0.4" stroke-width="${nut?6:2}"/>`;}
+  if(!hasOpen&&winStart>0)svg+=`<text x="${pad-6}" y="${pad+fg*.9}" text-anchor="end" font-size="12" fill="currentColor">${winStart}</text>`;
+  state.forEach(s=>{
+    const col=5-s.string,x=pad+col*sg;
+    if(s.fret===null){svg+=`<text x="${x}" y="${pad-6}" text-anchor="middle" font-size="12" fill="currentColor" opacity="0.5">x</text>`;return;}
+    if(s.fret===0){svg+=`<circle cx="${x}" cy="${pad-8}" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/>`;return;}
+    const y=pad+(s.fret-winStart+.5)*fg;
+    svg+=`<circle cx="${x}" cy="${y}" r="8" fill="var(--custard)" fill-opacity="0.9"/>`;
+  });
+  return svg+`</svg>`;
+}
+
+saveSnapBtn.addEventListener('click',()=>{
+  const{pcs,bassPc}=getSelectionInfo();if(!pcs.length)return;
+  const best=findBestChord(pcs,keySel.value,bassPc);
+  const state=collectMarkedState();
+  const label=best?best.label:'未命名';
+  const svg=renderChordChart(state,label);
+  const notes=state.map(s=>(s.fret===null||s.midi==null)?'x':noteName(norm(s.midi),keySel.value));
+  const card=document.createElement('div');card.className='snap-card';
+  card.innerHTML=`<div class="snap-head"><span class="snap-title">${label}</span><button class="snap-del">刪除</button></div>${svg}<div class="snap-notes">弦(6→1)：${notes.slice().reverse().join(' · ')}</div>`;
+  card.querySelector('.snap-del').addEventListener('click',e=>{e.stopPropagation();card.remove();});
+  card.addEventListener('click',e=>{if(e.target.classList.contains('snap-del'))return;const midis=state.filter(s=>s.midi).map(s=>s.midi).reverse();if(midis.length)playGuitarNotes(midis,.04);});
+  snapshots.prepend(card);
+});
+
+function buildBoard(){
+  markedByString=[];
+  const keyName=keySel.value,scaleKey=scaleSel.value;
+  const rootPc=(NOTES_SHARP.includes(keyName)?NOTES_SHARP.indexOf(keyName):NOTES_FLAT.indexOf(keyName));
+  const scalePcs=new Set((SCALES[scaleKey]||[]).map(s=>norm(rootPc+s)));
+  board.setAttribute('viewBox','0 0 1600 300');board.innerHTML='';
+  // Explicit white background for the whole SVG
+  const svgBg=document.createElementNS('http://www.w3.org/2000/svg','rect');
+  svgBg.setAttribute('x',0);svgBg.setAttribute('y',0);
+  svgBg.setAttribute('width','100%');svgBg.setAttribute('height','100%');
+  const isDarkMode = document.body.classList.contains('dark-theme');
+  svgBg.setAttribute('fill', isDarkMode ? '#191919' : '#ffffff');
+  board.appendChild(svgBg);
+  const fbX=60,fbY=24,fbW=1430,fbH=252,frets=24,strings=6;
+  const bg=document.createElementNS('http://www.w3.org/2000/svg','rect');
+  bg.setAttribute('x',fbX+fbW*(1/(frets+.5)));bg.setAttribute('y',fbY);
+  bg.setAttribute('width',fbW-fbW*(1/(frets+.5)));bg.setAttribute('height',fbH);
+  bg.setAttribute('class','fret-bg');board.appendChild(bg);
+  for(let s=0;s<strings;s++){
+    const y=fbY+fbH*(s+.5)/strings;
+    const l=document.createElementNS('http://www.w3.org/2000/svg','line');
+    l.setAttribute('x1',fbX+fbW*(1/(frets+.5)));l.setAttribute('x2',fbX+fbW);
+    l.setAttribute('y1',y);l.setAttribute('y2',y);l.setAttribute('class','string');board.appendChild(l);
+  }
+  for(let f=1;f<=frets;f++){
+    const x=fbX+fbW*(f/(frets+.5));
+    const l=document.createElementNS('http://www.w3.org/2000/svg','line');
+    l.setAttribute('x1',x);l.setAttribute('x2',x);l.setAttribute('y1',fbY);l.setAttribute('y2',fbY+fbH);
+    l.setAttribute('class',f===1?'fret first-fret':'fret');board.appendChild(l);
+    if([4,6,8,10,16,18,20,22].includes(f)){
+      const cx=x-fbW/(frets+.5)/2,c=document.createElementNS('http://www.w3.org/2000/svg','circle');
+      c.setAttribute('cx',cx);c.setAttribute('cy',fbY+fbH/2);c.setAttribute('r',6);c.setAttribute('class','marker-dot');board.appendChild(c);
     }
-    saveSnapBtn.addEventListener('click', handleSaveSnapshot);
+    if(f===13){
+      [fbY+fbH/3,fbY+fbH*2/3].forEach(y=>{const c=document.createElementNS('http://www.w3.org/2000/svg','circle');c.setAttribute('cx',x-fbW/(frets+.5)/2);c.setAttribute('cy',y);c.setAttribute('r',6);c.setAttribute('class','marker-dot');board.appendChild(c);});
+    }
+  }
+  function parseNote(tok){const m=tok.match(/^([A-G](?:#|b)?)(\d)$/);const name=m[1],oct=+m[2];const pc=(NOTES_SHARP.indexOf(name)>=0?NOTES_SHARP.indexOf(name):NOTES_FLAT.indexOf(name));return{pc,midi:(oct+1)*12+pc};}
+  const tuning=STANDARD_TUNING.map(parseNote);
+  for(let s=0;s<strings;s++){
+    const open=tuning[s];
+    for(let f=0;f<=frets;f++){
+      const midi=open.midi+f,pc=norm(open.pc+f);
+      const cx=fbX+fbW*((f+.5)/(frets+.5)),cy=fbY+fbH*(s+.5)/strings;
+      const g=document.createElementNS('http://www.w3.org/2000/svg','g');
+      g.setAttribute('class','note');g.dataset.midi=midi;g.dataset.string=s;g.dataset.fret=f;
+      const dot=document.createElementNS('http://www.w3.org/2000/svg','circle');
+      dot.setAttribute('cx',cx);dot.setAttribute('cy',cy);dot.setAttribute('r',12);
+      dot.setAttribute('fill', isDarkMode ? '#252523' : '#ffffff');
+      const inScale = scaleKey==='none' || scalePcs.has(pc);
+      if(inScale) g.classList.add('in-scale');
+      const lbl=document.createElementNS('http://www.w3.org/2000/svg','text');
+      lbl.setAttribute('x',cx);lbl.setAttribute('y',cy+3.5);
+      lbl.setAttribute('text-anchor','middle');lbl.setAttribute('font-size','11');
+      lbl.textContent=(labelSel.value==='degree'&&scaleKey!=='none')?degreeName(pc,rootPc):noteName(pc,keySel.value);
+      g.appendChild(dot);g.appendChild(lbl);board.appendChild(g);
+      g.addEventListener('click',()=>{
+        playGuitarNotes([midi]);
+        if(g.classList.contains('marked')){
+          g.classList.remove('marked');
+          markedByString[s]=null;
+        } else {
+          if(markedByString[s]?.isConnected){
+            markedByString[s].classList.remove('marked');
+          }
+          g.classList.add('marked');
+          markedByString[s]=g;
+        }
+        updatePlayBtns();
+      });
+    }
+  }
+  updatePlayBtns();
+}
+[keySel,scaleSel,labelSel].forEach(el=>el.addEventListener('change',buildBoard));
+buildBoard();
 
-    /* ===== 主繪圖：24 格指板（正確幾何） ===== */
-    function buildBoard(){
-      markedByString=[];
-      const keyName=keySel.value, scaleKey=scaleSel.value;
-      const rootPc=(NOTES_SHARP.includes(keyName)?NOTES_SHARP.indexOf(keyName):NOTES_FLAT.indexOf(keyName));
-      const scalePcs=new Set((SCALES[scaleKey]||[]).map(s=>norm(rootPc+s)));
+/* ════════════════════════════════════════════════════════
+   PROFESSIONAL TAB EDITOR
+════════════════════════════════════════════════════════ */
+const DUR_BEATS  = { w:4, h:2, q:1, '8':.5, '16':.25 };
+const TECH_LABEL = { h:'h', p:'p', slide_up:'/', slide_down:'\\', bend:'b', vibrato:'~', mute:'x' };
+const MEASURES_PER_LINE = 4;
+const SCORE_W = 900, FIRST_W = 220, OTHER_W = 158, LINE_H = 150;
 
-      const width=1600, height=300, padX=60, padY=24;
-      const fbX=padX, fbY=padY, fbW=1430, fbH=252, frets=24, strings=6;
-      board.setAttribute('viewBox',`0 0 ${width} ${height}`);
-      board.innerHTML='';
+let tabMeasures = [], tabCursor = {m:0,b:0,s:1}, tabSelectedDur = 'q';
+let fretBuffer = '', fretTimer = null;
+let _notePositions = [], _staveStringYs = {};
 
-      // 指板底色：從第 2 格開始鋪，避免出現雙 nut 視覺
-      const bg=document.createElementNS('http://www.w3.org/2000/svg','rect');
-      bg.setAttribute('x',fbX+fbW*(1/(frets+0.5)));
-      bg.setAttribute('y',fbY);
-      bg.setAttribute('width',fbW - fbW*(1/(frets+0.5)));
-      bg.setAttribute('height',fbH);
-      bg.setAttribute('class','fret-bg');
-      board.appendChild(bg);
+function makeBeat(dur){ return {duration:dur||tabSelectedDur, strings:[], technique:null, isRest:false}; }
+function makeMeasure(ts){ return {timeSig:ts||'4/4', beats:[makeBeat('q')]}; }
+tabMeasures = [makeMeasure('4/4')];
 
-      // 弦線：從第一格開始（左側保留 nut 視覺空隙）
-      for(let s=0;s<strings;s++){
-        const y=fbY+fbH*(s+0.5)/strings;
-        const line=document.createElementNS('http://www.w3.org/2000/svg','line');
-        line.setAttribute('x1',fbX+fbW*(1/(frets+0.5)));
-        line.setAttribute('x2',fbX+fbW);
-        line.setAttribute('y1',y); line.setAttribute('y2',y);
-        line.setAttribute('class','string');
-        board.appendChild(line);
+function clampCursor(){
+  tabCursor.m = Math.max(0,Math.min(tabCursor.m,tabMeasures.length-1));
+  tabCursor.b = Math.max(0,Math.min(tabCursor.b,tabMeasures[tabCursor.m].beats.length-1));
+  tabCursor.s = Math.max(1,Math.min(tabCursor.s,6));
+}
+function cursorNext(){
+  const bl=tabMeasures[tabCursor.m].beats.length;
+  if(tabCursor.b<bl-1)tabCursor.b++;
+  else if(tabCursor.m<tabMeasures.length-1){tabCursor.m++;tabCursor.b=0;}
+}
+function cursorPrev(){
+  if(tabCursor.b>0)tabCursor.b--;
+  else if(tabCursor.m>0){tabCursor.m--;tabCursor.b=tabMeasures[tabCursor.m].beats.length-1;}
+}
+function updateCursorUI(){
+  document.getElementById('curM').textContent=tabCursor.m+1;
+  document.getElementById('curB').textContent=tabCursor.b+1;
+  document.getElementById('curS').textContent=tabCursor.s;
+  document.getElementById('measureCount').textContent=tabMeasures.length;
+}
+
+function addBeatIfNeeded(){
+  const m=tabMeasures[tabCursor.m];
+  const[n,d]=m.timeSig.split('/').map(Number);
+  const cap=(n/d)*4;
+  const used=m.beats.reduce((s,b)=>s+DUR_BEATS[b.duration],0);
+  if(tabCursor.b===m.beats.length-1&&used<cap-0.001) m.beats.push(makeBeat(tabSelectedDur));
+}
+
+function commitNote(fret,isRest){
+  const beat=tabMeasures[tabCursor.m].beats[tabCursor.b];
+  beat.duration=tabSelectedDur;
+  if(isRest){beat.isRest=true;beat.strings=[];}
+  else{
+    if(fret<0||fret>24){setStatus('格數需介於 0–24','err');return;}
+    beat.isRest=false;
+    beat.strings=beat.strings.filter(n=>n.string!==tabCursor.s);
+    beat.strings.push({string:tabCursor.s,fret});
+    beat.strings.sort((a,b)=>a.string-b.string);
+  }
+  setStatus(isRest?`休止符 @ M${tabCursor.m+1}B${tabCursor.b+1}`:`弦${tabCursor.s}品${fret} @ M${tabCursor.m+1}B${tabCursor.b+1}`);
+  addBeatIfNeeded();
+  cursorNext();
+  clampCursor();
+  renderScore();
+  updateCursorUI();
+}
+
+function deleteCurrentNote(){
+  const beat=tabMeasures[tabCursor.m].beats[tabCursor.b];
+  beat.strings=beat.strings.filter(n=>n.string!==tabCursor.s);
+  if(!beat.strings.length)beat.isRest=false;
+  renderScore();updateCursorUI();setStatus('已刪除');
+}
+
+function applyTechnique(tech){
+  const beat=tabMeasures[tabCursor.m].beats[tabCursor.b];
+  if(tech===null){
+    beat.technique=null;
+    document.querySelectorAll('.tech-btn').forEach(b=>b.classList.remove('active'));
+    setStatus('已清除技巧');
+  } else {
+    beat.technique=tech;
+    document.querySelectorAll('.tech-btn[data-tech]').forEach(b=>b.classList.toggle('active',b.dataset.tech===tech));
+    const nm={h:'Hammer-on',p:'Pull-off',slide_up:'Slide Up',slide_down:'Slide Down',bend:'Bend',vibrato:'Vibrato',mute:'Mute'};
+    setStatus(`套用：${nm[tech]||tech}`);
+  }
+  renderScore();
+}
+
+function addTabMeasure(){
+  tabMeasures.push(makeMeasure(document.getElementById('timeSigSel').value));
+  renderScore();updateCursorUI();setStatus(`新增第${tabMeasures.length}小節`);
+}
+function deleteTabMeasure(){
+  if(tabMeasures.length<=1){setStatus('至少保留一小節','warn');return;}
+  tabMeasures.pop();
+  if(tabCursor.m>=tabMeasures.length){tabCursor.m=tabMeasures.length-1;tabCursor.b=0;}
+  clampCursor();renderScore();updateCursorUI();setStatus('已刪除最後一小節');
+}
+
+/* ── VexFlow Renderer ── */
+function renderScore(){
+  _notePositions=[];_staveStringYs={};
+  const container=document.getElementById('scoreContainer');
+  container.innerHTML='';
+  const{Renderer,TabNote,TabStave,Voice,Formatter,Annotation}=Vex.Flow;
+  const totalLines=Math.ceil(tabMeasures.length/MEASURES_PER_LINE);
+  const svgH=totalLines*LINE_H+30;
+  const renderer=new Renderer(container,Renderer.Backends.SVG);
+  renderer.resize(SCORE_W,svgH);
+  const ctx=renderer.getContext();
+  ctx.setFont('Courier Prime, monospace',10);
+  ctx.setFillStyle('#111');ctx.setStrokeStyle('#111');
+
+  for(let line=0;line<totalLines;line++){
+    const mStart=line*MEASURES_PER_LINE;
+    const mEnd=Math.min(mStart+MEASURES_PER_LINE,tabMeasures.length);
+    const yBase=line*LINE_H+35;
+    let xOff=8;
+
+    for(let mi=mStart;mi<mEnd;mi++){
+      const measure=tabMeasures[mi];
+      const isFirst=mi===mStart;
+      const staveW=isFirst?FIRST_W:OTHER_W;
+      const isCurrent=mi===tabCursor.m;
+
+      const stave=new TabStave(xOff,yBase,staveW-4);
+      if(isFirst){
+        stave.addClef('tab');
+        const[n,d]=measure.timeSig.split('/').map(Number);
+        stave.addTimeSignature(`${n}/${d}`);
+      }
+      stave.setContext(ctx).draw();
+
+      // ★ Record exact string Y from VexFlow API
+      if(isFirst){
+        _staveStringYs[line]=[0,1,2,3,4,5].map(i=>stave.getYForLine(i));
       }
 
-      // 品絲 + 定位點（4,6,8,10,13 雙點, 16,18,20,22）
-      for(let f=1;f<=frets;f++){
-        const x=fbX+fbW*(f/(frets+0.5));
-        const l=document.createElementNS('http://www.w3.org/2000/svg','line');
-        l.setAttribute('x1',x); l.setAttribute('x2',x);
-        l.setAttribute('y1',fbY); l.setAttribute('y2',fbY+fbH);
-        l.setAttribute('class', f===1? 'fret first-fret':'fret');
-        board.appendChild(l);
-        if([4,6,8,10,16,18,20,22].includes(f)){
-          const cx=x - fbW/(frets+0.5)/2;
-          const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
-          c.setAttribute('cx',cx); c.setAttribute('cy',fbY+fbH/2); c.setAttribute('r',6); c.setAttribute('class','marker-dot');
-          board.appendChild(c);
-        }
-        if(f===13){
-          const cx=x - fbW/(frets+0.5)/2, y1=fbY+fbH/3, y2=fbY+fbH*2/3;
-          [y1,y2].forEach(y=>{ const c=document.createElementNS('http://www.w3.org/2000/svg','circle'); c.setAttribute('cx',cx); c.setAttribute('cy',y); c.setAttribute('r',6); c.setAttribute('class','marker-dot'); board.appendChild(c); });
-        }
-      }
+      ctx.save();
+      ctx.setFont('Courier Prime, monospace',8);
+      ctx.setFillStyle(isCurrent?'#A3C4BC':'#999');
+      ctx.fillText(`${mi+1}`,xOff+3,yBase-2);
+      ctx.restore();
 
-      // 解析調弦（1→6 弦：E4 B3 G3 D3 A2 E2）
-      function parseNote(tok){ const m=tok.match(/^([A-G](?:#|b)?)(\d)$/); const name=m[1],oct=+m[2]; const pc=(NOTES_SHARP.indexOf(name)>=0?NOTES_SHARP.indexOf(name):NOTES_FLAT.indexOf(name)); return {pc,midi:(oct+1)*12+pc}; }
-      const tuning=STANDARD_TUNING.map(parseNote);
-
-      // 畫音點（含開放弦 f=0）與互動
-      for(let s=0;s<strings;s++){
-        const open=tuning[s];
-        for(let f=0;f<=frets;f++){
-          const midi=open.midi+f, pc=norm(open.pc+f);
-          const cx=fbX+fbW*((f+0.5)/(frets+0.5)), cy=fbY+fbH*(s+0.5)/strings;
-          const g=document.createElementNS('http://www.w3.org/2000/svg','g');
-          g.setAttribute('class','note'); g.dataset.midi=midi; g.dataset.string=s; g.dataset.fret=f;
-
-          const dot=document.createElementNS('http://www.w3.org/2000/svg','circle');
-          dot.setAttribute('cx',cx); dot.setAttribute('cy',cy); dot.setAttribute('r',12);
-          const fillColor=(scaleSel.value==='none')?'var(--note-neutral)':(scalePcs.has(pc)?'var(--note)':'var(--note-dim)');
-          dot.setAttribute('fill',fillColor);
-
-          const lbl=document.createElementNS('http://www.w3.org/2000/svg','text');
-          lbl.setAttribute('x',cx); lbl.setAttribute('y',cy+3);
-          lbl.setAttribute('text-anchor','middle'); lbl.setAttribute('font-size','11'); lbl.setAttribute('fill','#0b0e14');
-          lbl.textContent=(labelSel.value==='degree' && scaleSel.value!=='none')? degreeName(pc, rootPc) : noteName(pc, keySel.value);
-
-          g.appendChild(dot); g.appendChild(lbl); board.appendChild(g);
-
-          g.addEventListener('click',()=>{
-            playGuitarNotes([midi]);
-            if(g.classList.contains('marked')){ g.classList.remove('marked'); markedByString[s]=null; }
-            else{ if(markedByString[s]&&markedByString[s].isConnected){ markedByString[s].classList.remove('marked'); } g.classList.add('marked'); markedByString[s]=g; }
-            updatePlayBtns();
+      const vfNotes=buildVFNotes(measure,mi);
+      if(vfNotes.length>0){
+        try{
+          const[n,d]=measure.timeSig.split('/').map(Number);
+          const voice=new Voice({numBeats:n,beatValue:d});
+          voice.setMode(Voice.Mode.SOFT);
+          voice.addTickables(vfNotes);
+          new Formatter().joinVoices([voice]).format([voice],staveW-(isFirst?88:24));
+          voice.draw(ctx,stave);
+          vfNotes.forEach((note,bi)=>{
+            try{
+              const bb=note.getBoundingBox();
+              if(bb) _notePositions.push({mi,bi,x:bb.getX()+bb.getW()/2});
+            }catch(e){}
           });
-        }
+        }catch(err){/* skip */}
       }
-      updatePlayBtns();
+      xOff+=staveW;
     }
+  }
+  refreshTabHeader();
+  requestAnimationFrame(drawCursorOverlay);
+}
 
-    [keySel, scaleSel, labelSel].forEach(el=> el.addEventListener('change', buildBoard));
-    buildBoard();
-  </script>
+function buildVFNotes(measure,mi){
+  const{TabNote,Annotation}=Vex.Flow;
+  return measure.beats.map((beat,bi)=>{
+    const positions=beat.isRest||!beat.strings.length
+      ?[{str:3,fret:beat.isRest?'x':''}]
+      :beat.strings.map(n=>({str:n.string,fret:n.technique==='mute'?'x':String(n.fret)}));
+    let note;
+    try{note=new TabNote({positions:positions.length?positions:[{str:3,fret:'0'}],duration:beat.duration});}
+    catch(e){note=new TabNote({positions:[{str:3,fret:'0'}],duration:'q'});}
+    if(beat.technique&&TECH_LABEL[beat.technique]){
+      try{
+        const ann=new Annotation(TECH_LABEL[beat.technique]);
+        ann.setFont('Courier Prime, monospace',10,'bold');
+        ann.setVerticalJustification(Annotation.VerticalJustify.BOTTOM);
+        note.addModifier(ann,0);
+      }catch(e){}
+    }
+    return note;
+  }).filter(Boolean);
+}
+
+/* ── Cursor Overlay (uses getYForLine data) ── */
+function drawCursorOverlay(){
+  const overlay=document.getElementById('cursorOverlay');
+  overlay.innerHTML='';
+  const svg=document.querySelector('#scoreContainer svg');
+  if(!svg)return;
+
+  const wrapStyle=getComputedStyle(document.querySelector('.score-wrap'));
+  const padLeft=parseFloat(wrapStyle.paddingLeft);
+  const padTop =parseFloat(wrapStyle.paddingTop);
+
+  function svgToOverlay(svgX,svgY){return{x:padLeft+svgX,y:padTop+svgY};}
+
+  const curLine=Math.floor(tabCursor.m/MEASURES_PER_LINE);
+  const ys=_staveStringYs[curLine];
+  if(!ys||ys.length<6)return;
+
+  const posEntry=_notePositions.find(p=>p.mi===tabCursor.m&&p.bi===tabCursor.b);
+  let noteXsvg;
+  if(posEntry){
+    noteXsvg=posEntry.x;
+  }else{
+    const mInLine=tabCursor.m%MEASURES_PER_LINE;
+    let xx=8;
+    for(let i=0;i<mInLine;i++)xx+=(i===0?FIRST_W:OTHER_W);
+    const margin=mInLine===0?90:26;
+    const inner=(mInLine===0?FIRST_W:OTHER_W)-margin-10;
+    const beats=tabMeasures[tabCursor.m].beats.length;
+    noteXsvg=xx+margin+inner*(beats>1?tabCursor.b/beats:0);
+  }
+
+  const dotPt=svgToOverlay(noteXsvg,ys[tabCursor.s-1]);
+  const topPt=svgToOverlay(noteXsvg,ys[0]);
+  const botPt=svgToOverlay(noteXsvg,ys[5]);
+  const pad=6,colW=24;
+  const colH=(botPt.y+pad)-(topPt.y-pad);
+
+  const col=document.createElement('div');
+  col.className='cur-col';
+  col.style.cssText=`left:${dotPt.x-colW/2}px;top:${topPt.y-pad}px;width:${colW}px;height:${colH}px;`;
+  overlay.appendChild(col);
+
+  const dot=document.createElement('div');
+  dot.className='cur-dot';
+  dot.style.cssText=`left:${dotPt.x}px;top:${dotPt.y}px;`;
+  overlay.appendChild(dot);
+
+  const label=document.createElement('div');
+  label.className='cur-label';
+  label.textContent=`M${tabCursor.m+1}  B${tabCursor.b+1}  ${['e','B','G','D','A','E'][tabCursor.s-1]}弦`;
+  label.style.cssText=`left:${dotPt.x}px;top:${topPt.y-pad-22}px;`;
+  overlay.appendChild(label);
+}
+
+function refreshTabHeader(){
+  const title=document.getElementById('songTitle').value||'Untitled';
+  const artist=document.getElementById('artistName').value;
+  const bpm=document.getElementById('bpmInput').value;
+  document.getElementById('dispTitle').textContent=title;
+  document.getElementById('dispSub').textContent=(artist?artist+'   ·   ':'')+`♩ = ${bpm}`;
+  document.getElementById('measureCount').textContent=tabMeasures.length;
+}
+
+/* ── Status ── */
+let _stTimer;
+function setStatus(msg,type){
+  const el=document.getElementById('statusMsg');
+  el.className='status-msg '+(type==='err'?'st-err':type==='warn'?'st-warn':'st-ok');
+  el.textContent=msg;
+  clearTimeout(_stTimer);
+  _stTimer=setTimeout(()=>{el.className='status-msg st-ok';el.textContent='Ready';},3000);
+}
+
+/* ── PDF Export ── */
+async function exportPDF(){
+  setStatus('正在產生 PDF…');
+  try{
+    const{jsPDF}=window.jspdf;
+    const title=document.getElementById('songTitle').value||'Untitled';
+    const artist=document.getElementById('artistName').value;
+    const bpm=document.getElementById('bpmInput').value;
+    const pdf=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+    const PW=210,PH=297,ML=12,MT=28;const CW=PW-2*ML;
+    pdf.setFont('helvetica','bold');pdf.setFontSize(20);pdf.text(title,PW/2,MT-10,{align:'center'});
+    pdf.setFont('helvetica','normal');pdf.setFontSize(10);pdf.setTextColor(120);
+    pdf.text((artist?artist+'   ':'')+`♩ = ${bpm}`,PW/2,MT-3,{align:'center'});
+    pdf.setTextColor(0);pdf.setDrawColor(200);pdf.setLineWidth(.3);pdf.line(ML,MT,PW-ML,MT);
+    const{Renderer,TabNote,TabStave,Voice,Formatter,Annotation}=Vex.Flow;
+    const totalLines=Math.ceil(tabMeasures.length/MEASURES_PER_LINE);
+    let curY=MT+4,pageNum=1;
+    for(let line=0;line<totalLines;line++){
+      const div=document.createElement('div');
+      div.style.cssText='position:fixed;left:-9999px;top:0;width:900px;background:#fff;';
+      document.body.appendChild(div);
+      const renderer=new Renderer(div,Renderer.Backends.SVG);
+      renderer.resize(SCORE_W,LINE_H);
+      const ctx=renderer.getContext();
+      ctx.setFont('Arial',10);ctx.setFillStyle('#000');ctx.setStrokeStyle('#000');
+      const mStart=line*MEASURES_PER_LINE,mEnd=Math.min(mStart+MEASURES_PER_LINE,tabMeasures.length);
+      let xOff=8;
+      for(let mi=mStart;mi<mEnd;mi++){
+        const measure=tabMeasures[mi],isFirst=mi===mStart,staveW=isFirst?FIRST_W:OTHER_W;
+        const stave=new TabStave(xOff,35,staveW-4);
+        if(isFirst){stave.addClef('tab');const[n,d]=measure.timeSig.split('/').map(Number);stave.addTimeSignature(`${n}/${d}`);}
+        stave.setContext(ctx).draw();
+        ctx.save();ctx.setFont('Arial',8);ctx.setFillStyle('#999');ctx.fillText(`${mi+1}`,xOff+3,32);ctx.restore();
+        const vfNotes=buildVFNotes(measure,mi);
+        if(vfNotes.length>0){
+          try{
+            const[n,d]=measure.timeSig.split('/').map(Number);
+            const voice=new Voice({numBeats:n,beatValue:d});
+            voice.setMode(Voice.Mode.SOFT);voice.addTickables(vfNotes);
+            new Formatter().joinVoices([voice]).format([voice],staveW-(isFirst?88:24));
+            voice.draw(ctx,stave);
+          }catch(e){}
+        }
+        xOff+=staveW;
+      }
+      const svg=div.querySelector('svg');
+      if(svg){
+        const svgStr=new XMLSerializer().serializeToString(svg);
+        const url=URL.createObjectURL(new Blob([svgStr],{type:'image/svg+xml;charset=utf-8'}));
+        await new Promise(resolve=>{
+          const img=new Image();
+          img.onload=()=>{
+            const c=document.createElement('canvas');c.width=img.width*2;c.height=img.height*2;
+            const cx=c.getContext('2d');cx.scale(2,2);cx.fillStyle='#fff';cx.fillRect(0,0,img.width,img.height);cx.drawImage(img,0,0);
+            const ratio=CW/(img.width*.264583);const lh=img.height*.264583*ratio;
+            if(curY+lh>PH-14){pdf.setFontSize(8);pdf.setTextColor(150);pdf.text(String(pageNum),PW-ML,PH-6,{align:'right'});pdf.setTextColor(0);pdf.addPage();pageNum++;curY=16;}
+            pdf.addImage(c.toDataURL('image/png'),'PNG',ML,curY,CW,lh);
+            curY+=lh+3;URL.revokeObjectURL(url);resolve();
+          };
+          img.onerror=()=>{URL.revokeObjectURL(url);resolve();};
+          img.src=url;
+        });
+      }
+      div.remove();
+    }
+    pdf.setFontSize(8);pdf.setTextColor(150);pdf.text(String(pageNum),PW-ML,PH-6,{align:'right'});
+    pdf.save((title||'tab').replace(/[^\w]/g,'_')+'.pdf');
+    setStatus('PDF 已匯出');
+  }catch(err){console.error(err);setStatus('PDF 失敗：'+err.message,'err');}
+}
+
+/* ── UI Bindings ── */
+document.querySelectorAll('.dur-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    tabSelectedDur=btn.dataset.dur;
+    document.querySelectorAll('.dur-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+document.querySelectorAll('.tech-btn[data-tech]').forEach(btn=>{
+  btn.addEventListener('click',()=>applyTechnique(btn.dataset.tech));
+});
+document.getElementById('btnClearTech').addEventListener('click',()=>applyTechnique(null));
+
+document.getElementById('btnEnter').addEventListener('click',()=>{
+  const f=parseInt(document.getElementById('fretInput').value.trim(),10);
+  if(!isNaN(f)&&f>=0&&f<=24){commitNote(f,false);document.getElementById('fretInput').value='';fretBuffer='';}
+  else setStatus('請輸入格數 0–24','warn');
+});
+document.getElementById('btnRest').addEventListener('click',()=>commitNote(0,true));
+document.getElementById('btnDelete').addEventListener('click',deleteCurrentNote);
+document.getElementById('btnAddM').addEventListener('click',addTabMeasure);
+document.getElementById('btnDelM').addEventListener('click',deleteTabMeasure);
+document.getElementById('btnPDF').addEventListener('click',exportPDF);
+document.getElementById('btnClearAll').addEventListener('click',()=>{
+  if(!confirm('確定清除全部？'))return;
+  tabMeasures=[makeMeasure(document.getElementById('timeSigSel').value)];
+  tabCursor={m:0,b:0,s:1};
+  document.getElementById('fretInput').value='';fretBuffer='';
+  renderScore();updateCursorUI();setStatus('已清除');
+});
+
+['songTitle','artistName','bpmInput'].forEach(id=>{
+  document.getElementById(id).addEventListener('input',refreshTabHeader);
+});
+document.getElementById('timeSigSel').addEventListener('change',()=>{
+  tabMeasures[tabCursor.m].timeSig=document.getElementById('timeSigSel').value;
+  renderScore();
+});
+
+/* ── Keyboard ── */
+document.addEventListener('keydown',e=>{
+  const tag=e.target.tagName.toLowerCase();
+  const isFret=e.target.id==='fretInput';
+  const inText=(tag==='input'||tag==='select')&&!isFret;
+  // Only handle keyboard for TAB editor when that page is active
+  if(!document.getElementById('page-tab-editor').classList.contains('active'))return;
+  if(inText)return;
+
+  if(e.key==='ArrowRight'){e.preventDefault();cursorNext();clampCursor();updateCursorUI();renderScore();return;}
+  if(e.key==='ArrowLeft'){e.preventDefault();cursorPrev();clampCursor();updateCursorUI();renderScore();return;}
+  if(e.key==='ArrowUp'){e.preventDefault();tabCursor.s=Math.max(1,tabCursor.s-1);updateCursorUI();renderScore();return;}
+  if(e.key==='ArrowDown'){e.preventDefault();tabCursor.s=Math.min(6,tabCursor.s+1);updateCursorUI();renderScore();return;}
+
+  if(e.key==='Enter'){
+    e.preventDefault();
+    const val=document.getElementById('fretInput').value.trim()||fretBuffer;
+    const fret=parseInt(val,10);
+    if(!isNaN(fret)&&fret>=0&&fret<=24){commitNote(fret,false);document.getElementById('fretInput').value='';fretBuffer='';clearTimeout(fretTimer);}
+    return;
+  }
+  if(e.key==='Delete'||(e.key==='Backspace'&&!isFret)){e.preventDefault();deleteCurrentNote();return;}
+  if(!isFret){
+    if(e.key==='h'){e.preventDefault();applyTechnique('h');return;}
+    if(e.key==='p'){e.preventDefault();applyTechnique('p');return;}
+    if(e.key==='s'){e.preventDefault();applyTechnique('slide_up');return;}
+    if(e.key==='b'){e.preventDefault();applyTechnique('bend');return;}
+    if(e.key==='~'){e.preventDefault();applyTechnique('vibrato');return;}
+    if(e.key==='x'){e.preventDefault();applyTechnique('mute');return;}
+    if(e.key==='r'||e.key==='R'){e.preventDefault();commitNote(0,true);return;}
+  }
+  if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&/^[0-9]$/.test(e.key)&&!isFret){
+    e.preventDefault();
+    fretBuffer+=e.key;
+    document.getElementById('fretInput').value=fretBuffer;
+    clearTimeout(fretTimer);
+    if(fretBuffer.length>=2){
+      const fret=parseInt(fretBuffer,10);fretBuffer='';
+      if(fret>=0&&fret<=24){commitNote(fret,false);document.getElementById('fretInput').value='';}
+      else{setStatus('格數需介於 0–24','err');document.getElementById('fretInput').value='';fretBuffer='';}
+    }else{
+      fretTimer=setTimeout(()=>{
+        const fret=parseInt(fretBuffer,10);fretBuffer='';
+        if(!isNaN(fret)&&fret>=0&&fret<=24){commitNote(fret,false);document.getElementById('fretInput').value='';}
+      },800);
+    }
+  }
+});
+
+document.getElementById('fretInput').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){
+    e.preventDefault();
+    const fret=parseInt(e.target.value.trim(),10);
+    if(!isNaN(fret)&&fret>=0&&fret<=24){commitNote(fret,false);e.target.value='';fretBuffer='';}
+    else setStatus('格數需介於 0–24','err');
+  }
+});
+
+window.addEventListener('resize',drawCursorOverlay);
+
+/* ── Init ── */
+window.addEventListener('load',()=>{
+  buildBoard();
+  setTimeout(()=>{setStatus('編輯器已就緒 — 切換上方分頁使用指板工具或 TAB 編輯器');},100);
+});
+</script>
 </body>
 </html>
