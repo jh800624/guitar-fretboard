@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>吉他手工具 v3</title>
+  <title>互動吉他指板 + 專業 TAB 編輯器 v3</title>
   <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.2/build/cjs/vexflow.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
@@ -247,6 +247,11 @@
   }
   /* TAB score is always white regardless of theme */
   .dark-theme .score-wrap{background:#ffffff;border-color:#e0e0e0;}
+  /* VexFlow stems: thinner */
+  #scoreContainer svg line[stroke-width="2"],
+  #scoreContainer svg line[stroke-width="3"]{ stroke-width:1 !important; stroke:#555 !important; }
+  #scoreContainer svg rect[fill="black"],
+  #scoreContainer svg rect[fill="#000000"]{ fill:#555 !important; }
 
   /* Cursor overlay */
   #cursorOverlay{
@@ -710,11 +715,31 @@ buildBoard();
 const DUR_BEATS  = { w:4, h:2, q:1, '8':.5, '16':.25 };
 const TECH_LABEL = { h:'h', p:'p', slide_up:'/', slide_down:'\\', bend:'b', vibrato:'~', mute:'x' };
 const MEASURES_PER_LINE = 4;
-const SCORE_W = 900, FIRST_W = 220, OTHER_W = 158, LINE_H = 150;
+const LINE_H = 190;
+const SCORE_W_MAX = 920; // max SVG width
+const CLEF_W = 88;       // space taken by clef + time sig in first measure
+const MARGIN_W = 24;     // left margin in subsequent measures
+const MIN_NOTE_W = 28;   // minimum px per quarter-beat slot
+const NOTE_W = { 'w':4, 'h':2, 'q':1, '8':0.5, '16':0.25 }; // beats per duration
+
+// Calculate minimum width needed for a measure in quarter-beat units
+function measureMinBeats(measure) {
+  return measure.beats.reduce((s,b) => s + (NOTE_W[b.duration]||1), 0);
+}
+
+// Calculate px width for a measure given its content
+function calcStaveW(measure, isFirst) {
+  const beats = measureMinBeats(measure);
+  const minW = isFirst ? CLEF_W : MARGIN_W;
+  // Each quarter-beat gets at least MIN_NOTE_W px
+  // 16th note (0.25 beats) → needs ~28px; quarter (1 beat) → 28px
+  const contentW = Math.max(beats * MIN_NOTE_W * 1.8, MIN_NOTE_W * 4);
+  return Math.round(minW + contentW);
+}
 
 let tabMeasures = [], tabCursor = {m:0,b:0,s:1}, tabSelectedDur = 'q';
 let fretBuffer = '', fretTimer = null;
-let _notePositions = [], _staveStringYs = {};
+let _notePositions = [], _staveStringYs = {}, _measureLineIdx = {};
 
 function makeBeat(dur){ return {duration:dur||tabSelectedDur, strings:[], technique:null, isRest:false}; }
 function makeMeasure(ts){ return {timeSig:ts||'4/4', beats:[makeBeat('q')]}; }
@@ -803,31 +828,74 @@ function deleteTabMeasure(){
 
 /* ── VexFlow Renderer ── */
 function renderScore(){
-  _notePositions=[];_staveStringYs={};
+  _notePositions=[];_staveStringYs={};_measureLineIdx={};
   const container=document.getElementById('scoreContainer');
   container.innerHTML='';
-  const{Renderer,TabNote,TabStave,Voice,Formatter,Annotation}=Vex.Flow;
-  const totalLines=Math.ceil(tabMeasures.length/MEASURES_PER_LINE);
-  const svgH=totalLines*LINE_H+30;
+  const{Renderer,TabNote,TabStave,Voice,Formatter,Annotation,Beam}=Vex.Flow;
+
+  // ── Build lines: pack measures until line is full ──
+  const lines = [];   // each line = array of measure indices
+  let curLine = [];
+  let curW = 0;
+
+  for(let mi=0; mi<tabMeasures.length; mi++){
+    const measure = tabMeasures[mi];
+    const isFirst = curLine.length === 0;
+    const mw = calcStaveW(measure, isFirst);
+    // If adding this measure would exceed max width AND line is not empty → wrap
+    if(curW + mw > SCORE_W_MAX && curLine.length > 0){
+      lines.push(curLine);
+      curLine = [mi];
+      curW = calcStaveW(measure, true); // now it's first in new line
+    } else {
+      curLine.push(mi);
+      curW += mw;
+    }
+  }
+  if(curLine.length > 0) lines.push(curLine);
+
+  // Record which line each measure is on
+  lines.forEach((line, li) => line.forEach(mi => _measureLineIdx[mi] = li));
+
+  // ── Determine SVG width per line (stretch last measure to fill) ──
+  const totalSvgH = lines.length * LINE_H + 30;
+
+  // Use max line width across all lines for SVG width
+  let maxLineW = 0;
+  lines.forEach(line => {
+    const lw = line.reduce((s,mi,i)=>s+calcStaveW(tabMeasures[mi],i===0),0);
+    if(lw > maxLineW) maxLineW = lw;
+  });
+  const SCORE_W = Math.min(SCORE_W_MAX, Math.max(400, maxLineW + 10));
+
   const renderer=new Renderer(container,Renderer.Backends.SVG);
-  renderer.resize(SCORE_W,svgH);
+  renderer.resize(SCORE_W, totalSvgH);
   const ctx=renderer.getContext();
   ctx.setFont('Courier Prime, monospace',10);
   ctx.setFillStyle('#111');ctx.setStrokeStyle('#111');
 
-  for(let line=0;line<totalLines;line++){
-    const mStart=line*MEASURES_PER_LINE;
-    const mEnd=Math.min(mStart+MEASURES_PER_LINE,tabMeasures.length);
-    const yBase=line*LINE_H+35;
-    let xOff=8;
+  lines.forEach((line, lineIdx) => {
+    const yBase = lineIdx * LINE_H + 35;
 
-    for(let mi=mStart;mi<mEnd;mi++){
-      const measure=tabMeasures[mi];
-      const isFirst=mi===mStart;
-      const staveW=isFirst?FIRST_W:OTHER_W;
-      const isCurrent=mi===tabCursor.m;
+    // Compute raw widths for this line
+    const rawWidths = line.map((mi,i) => calcStaveW(tabMeasures[mi], i===0));
+    const rawTotal  = rawWidths.reduce((s,w)=>s+w,0);
+    // Scale to fill SCORE_W
+    const scale = SCORE_W / rawTotal;
+    const staveWidths = rawWidths.map(w => Math.floor(w * scale));
+    // Give remainder to last measure
+    const diff = SCORE_W - staveWidths.reduce((s,w)=>s+w,0);
+    staveWidths[staveWidths.length-1] += diff;
 
-      const stave=new TabStave(xOff,yBase,staveW-4);
+    let xOff = 0;
+
+    line.forEach((mi, posInLine) => {
+      const measure = tabMeasures[mi];
+      const isFirst = posInLine === 0;
+      const staveW  = staveWidths[posInLine];
+      const isCurrent = mi === tabCursor.m;
+
+      const stave=new TabStave(xOff, yBase, staveW-4);
       if(isFirst){
         stave.addClef('tab');
         const[n,d]=measure.timeSig.split('/').map(Number);
@@ -835,37 +903,56 @@ function renderScore(){
       }
       stave.setContext(ctx).draw();
 
-      // ★ Record exact string Y from VexFlow API
+      // Record string Y positions
       if(isFirst){
-        _staveStringYs[line]=[0,1,2,3,4,5].map(i=>stave.getYForLine(i));
+        _staveStringYs[lineIdx]=[0,1,2,3,4,5].map(i=>stave.getYForLine(i));
       }
 
+      // Measure number
       ctx.save();
       ctx.setFont('Courier Prime, monospace',8);
-      ctx.setFillStyle(isCurrent?'#A3C4BC':'#999');
+      ctx.setFillStyle(isCurrent?'#888':'#bbb');
       ctx.fillText(`${mi+1}`,xOff+3,yBase-2);
       ctx.restore();
 
       const vfNotes=buildVFNotes(measure,mi);
+      const innerW = staveW - (isFirst ? CLEF_W+4 : MARGIN_W+4);
+      const noteStartX = xOff + (isFirst ? CLEF_W+4 : MARGIN_W+4);
+
       if(vfNotes.length>0){
         try{
           const[n,d]=measure.timeSig.split('/').map(Number);
           const voice=new Voice({numBeats:n,beatValue:d});
           voice.setMode(Voice.Mode.SOFT);
           voice.addTickables(vfNotes);
-          new Formatter().joinVoices([voice]).format([voice],staveW-(isFirst?88:24));
+          new Formatter().joinVoices([voice]).format([voice], innerW);
           voice.draw(ctx,stave);
+
+          const beamGroups=Beam.generateBeams(vfNotes);
+          beamGroups.forEach(beam=>beam.setContext(ctx).draw());
+
           vfNotes.forEach((note,bi)=>{
             try{
-              const bb=note.getBoundingBox();
-              if(bb) _notePositions.push({mi,bi,x:bb.getX()+bb.getW()/2});
-            }catch(e){}
+              const absX = note.getAbsoluteX();
+              const bb = note.getBoundingBox();
+              const x = absX || (bb ? bb.getX()+bb.getW()/2 : noteStartX+innerW/vfNotes.length*bi);
+              _notePositions.push({mi,bi,x});
+            }catch(e){
+              const step=innerW/Math.max(vfNotes.length,1);
+              _notePositions.push({mi,bi,x:noteStartX+step*bi+step*0.5});
+            }
           });
-        }catch(err){/* skip */}
+        }catch(err){
+          const step = innerW / Math.max(vfNotes.length,1);
+          vfNotes.forEach((_,bi)=>{
+            _notePositions.push({mi,bi,x:noteStartX + step*bi + step*0.5});
+          });
+        }
       }
       xOff+=staveW;
-    }
-  }
+    });
+  });
+
   refreshTabHeader();
   requestAnimationFrame(drawCursorOverlay);
 }
@@ -877,8 +964,17 @@ function buildVFNotes(measure,mi){
       ?[{str:3,fret:beat.isRest?'x':''}]
       :beat.strings.map(n=>({str:n.string,fret:n.technique==='mute'?'x':String(n.fret)}));
     let note;
-    try{note=new TabNote({positions:positions.length?positions:[{str:3,fret:'0'}],duration:beat.duration});}
-    catch(e){note=new TabNote({positions:[{str:3,fret:'0'}],duration:'q'});}
+    try{
+      note=new TabNote({
+        positions:positions.length?positions:[{str:3,fret:'0'}],
+        duration:beat.duration,
+        draw_stem:true,
+        stem_direction:1
+      });
+    }
+    catch(e){
+      note=new TabNote({positions:[{str:3,fret:'0'}],duration:'q',draw_stem:true,stem_direction:1});
+    }
     if(beat.technique&&TECH_LABEL[beat.technique]){
       try{
         const ann=new Annotation(TECH_LABEL[beat.technique]);
@@ -904,8 +1000,8 @@ function drawCursorOverlay(){
 
   function svgToOverlay(svgX,svgY){return{x:padLeft+svgX,y:padTop+svgY};}
 
-  const curLine=Math.floor(tabCursor.m/MEASURES_PER_LINE);
-  const ys=_staveStringYs[curLine];
+  const curLineIdx = _measureLineIdx[tabCursor.m] ?? 0;
+  const ys=_staveStringYs[curLineIdx];
   if(!ys||ys.length<6)return;
 
   const posEntry=_notePositions.find(p=>p.mi===tabCursor.m&&p.bi===tabCursor.b);
@@ -913,13 +1009,7 @@ function drawCursorOverlay(){
   if(posEntry){
     noteXsvg=posEntry.x;
   }else{
-    const mInLine=tabCursor.m%MEASURES_PER_LINE;
-    let xx=8;
-    for(let i=0;i<mInLine;i++)xx+=(i===0?FIRST_W:OTHER_W);
-    const margin=mInLine===0?90:26;
-    const inner=(mInLine===0?FIRST_W:OTHER_W)-margin-10;
-    const beats=tabMeasures[tabCursor.m].beats.length;
-    noteXsvg=xx+margin+inner*(beats>1?tabCursor.b/beats:0);
+    noteXsvg=80;
   }
 
   const dotPt=svgToOverlay(noteXsvg,ys[tabCursor.s-1]);
@@ -976,23 +1066,27 @@ async function exportPDF(){
     const PW=210,PH=297,ML=12,MT=28;const CW=PW-2*ML;
     pdf.setFont('helvetica','bold');pdf.setFontSize(20);pdf.text(title,PW/2,MT-10,{align:'center'});
     pdf.setFont('helvetica','normal');pdf.setFontSize(10);pdf.setTextColor(120);
-    pdf.text((artist?artist+'   ':'')+`♩ = ${bpm}`,PW/2,MT-3,{align:'center'});
+    pdf.text((artist?artist+'   ':'')+`BPM = ${bpm}`,PW/2,MT-3,{align:'center'});
     pdf.setTextColor(0);pdf.setDrawColor(200);pdf.setLineWidth(.3);pdf.line(ML,MT,PW-ML,MT);
-    const{Renderer,TabNote,TabStave,Voice,Formatter,Annotation}=Vex.Flow;
+    const{Renderer,TabNote,TabStave,Voice,Formatter,Annotation,Beam}=Vex.Flow;
     const totalLines=Math.ceil(tabMeasures.length/MEASURES_PER_LINE);
     let curY=MT+4,pageNum=1;
     for(let line=0;line<totalLines;line++){
       const div=document.createElement('div');
-      div.style.cssText='position:fixed;left:-9999px;top:0;width:900px;background:#fff;';
+      div.style.cssText='position:fixed;left:-9999px;top:0;background:#fff;';
       document.body.appendChild(div);
+      // Compute widths for this PDF line
+      const mStart=line*MEASURES_PER_LINE,mEnd=Math.min(mStart+MEASURES_PER_LINE,tabMeasures.length);
+      const pdfStaveWidths=[];
+      for(let mi=mStart;mi<mEnd;mi++) pdfStaveWidths.push(calcStaveW(tabMeasures[mi],mi===mStart));
+      const pdfLineW=pdfStaveWidths.reduce((s,w)=>s+w,0);
       const renderer=new Renderer(div,Renderer.Backends.SVG);
-      renderer.resize(SCORE_W,LINE_H);
+      renderer.resize(pdfLineW,LINE_H);
       const ctx=renderer.getContext();
       ctx.setFont('Arial',10);ctx.setFillStyle('#000');ctx.setStrokeStyle('#000');
-      const mStart=line*MEASURES_PER_LINE,mEnd=Math.min(mStart+MEASURES_PER_LINE,tabMeasures.length);
-      let xOff=8;
-      for(let mi=mStart;mi<mEnd;mi++){
-        const measure=tabMeasures[mi],isFirst=mi===mStart,staveW=isFirst?FIRST_W:OTHER_W;
+      let xOff=0;
+      for(let i=0;i<mEnd-mStart;i++){
+        const mi=mStart+i,measure=tabMeasures[mi],isFirst=i===0,staveW=pdfStaveWidths[i];
         const stave=new TabStave(xOff,35,staveW-4);
         if(isFirst){stave.addClef('tab');const[n,d]=measure.timeSig.split('/').map(Number);stave.addTimeSignature(`${n}/${d}`);}
         stave.setContext(ctx).draw();
@@ -1003,8 +1097,10 @@ async function exportPDF(){
             const[n,d]=measure.timeSig.split('/').map(Number);
             const voice=new Voice({numBeats:n,beatValue:d});
             voice.setMode(Voice.Mode.SOFT);voice.addTickables(vfNotes);
-            new Formatter().joinVoices([voice]).format([voice],staveW-(isFirst?88:24));
+            new Formatter().joinVoices([voice]).format([voice],staveW-(isFirst?CLEF_W+4:MARGIN_W+4));
             voice.draw(ctx,stave);
+            const beamGroups=Beam.generateBeams(vfNotes);
+            beamGroups.forEach(beam=>beam.setContext(ctx).draw());
           }catch(e){}
         }
         xOff+=staveW;
