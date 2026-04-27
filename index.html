@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Guitar Tool Fretboard · TAB Editor v3</title>
+  <title>Guitar_Tool</title>
   <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.2/build/cjs/vexflow.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
@@ -414,6 +414,18 @@
     </div>
 
     <div class="sec">
+      <div class="sec-title">播放</div>
+      <div class="tbtn-row">
+        <button class="tbtn g full" id="btnPlay">▶ 播放</button>
+        <button class="tbtn r" id="btnStop" disabled>■ 停止</button>
+      </div>
+      <div class="field" style="margin-top:6px">
+        <label>從第幾小節</label>
+        <input type="number" id="playFromM" value="1" min="1" style="width:100%">
+      </div>
+    </div>
+
+    <div class="sec">
       <div class="sec-title">小節管理</div>
       <div class="m-info">共 <strong id="measureCount">1</strong> 小節</div>
       <div class="tbtn-row">
@@ -451,6 +463,7 @@
   <span><span class="kb">0-9</span>格數</span>
   <span><span class="kb">Enter</span>確認</span>
   <span><span class="kb">Del</span>刪除</span>
+  <span><span class="kb">Space</span>播放/停止</span>
   <span><span class="kb">h p s b ~ x r</span>技巧/休止</span>
   <span class="status-msg st-ok" id="statusMsg">Ready</span>
 </div>
@@ -1131,6 +1144,103 @@ async function exportPDF(){
   }catch(err){console.error(err);setStatus('PDF 失敗：'+err.message,'err');}
 }
 
+/* ════════════════════════════════════════════════════════
+   TAB PLAYBACK ENGINE
+════════════════════════════════════════════════════════ */
+const OPEN_STRINGS_MIDI = [64, 59, 55, 50, 45, 40]; // e B G D A E (string 1-6)
+const DUR_SEC = { 'w':4, 'h':2, 'q':1, '8':0.5, '16':0.25 };
+
+let _playScheduled = []; // list of AudioNode to stop
+let _playAnimFrame = null;
+let _isPlaying = false;
+
+function tabMidiToFreq(m){ return 440 * Math.pow(2, (m-69)/12); }
+
+function playTabNote(midi, startTime, duration, audioCtx){
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  // Pluck-like tone: mix of harmonics
+  const real = new Float32Array([0,1,0.5,0.25,0.1,0.05]);
+  const imag = new Float32Array(real.length);
+  osc.setPeriodicWave(audioCtx.createPeriodicWave(real, imag));
+  osc.frequency.setValueAtTime(tabMidiToFreq(midi), startTime);
+  // Envelope: sharp attack, quick decay (pluck feel)
+  gain.gain.setValueAtTime(0.001, startTime);
+  gain.gain.exponentialRampToValueAtTime(0.6, startTime + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.001, startTime + Math.min(duration * 0.9, 2.5));
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start(startTime);
+  osc.stop(startTime + Math.min(duration, 3));
+  _playScheduled.push(osc);
+}
+
+function stopPlayback(){
+  _isPlaying = false;
+  _playScheduled.forEach(n=>{ try{ n.stop(); }catch(e){} });
+  _playScheduled = [];
+  if(_playAnimFrame) cancelAnimationFrame(_playAnimFrame);
+  document.getElementById('btnPlay').disabled = false;
+  document.getElementById('btnStop').disabled = true;
+  setStatus('已停止');
+}
+
+function startPlayback(){
+  if(_isPlaying) stopPlayback();
+  ensureAudio();
+  _isPlaying = true;
+  document.getElementById('btnPlay').disabled = true;
+  document.getElementById('btnStop').disabled = false;
+
+  const bpm = parseFloat(document.getElementById('bpmInput').value) || 120;
+  const secPerBeat = 60 / bpm;
+  const fromM = Math.max(0, parseInt(document.getElementById('playFromM').value||'1',10) - 1);
+
+  const audioCtx2 = new (window.AudioContext || window.webkitAudioContext)();
+  let t = audioCtx2.currentTime + 0.05; // small offset to start
+  const beatTimings = []; // {time, mi, bi} for cursor sync
+
+  for(let mi = fromM; mi < tabMeasures.length; mi++){
+    const measure = tabMeasures[mi];
+    for(let bi = 0; bi < measure.beats.length; bi++){
+      const beat = measure.beats[bi];
+      const durSec = (DUR_SEC[beat.duration] || 1) * secPerBeat;
+      if(!beat.isRest && beat.strings.length > 0){
+        beat.strings.forEach(n => {
+          const midi = OPEN_STRINGS_MIDI[n.string - 1] + n.fret;
+          playTabNote(midi, t, durSec, audioCtx2);
+        });
+      }
+      beatTimings.push({ time: t, mi, bi });
+      t += durSec;
+    }
+  }
+
+  const endTime = t;
+
+  // Cursor sync via rAF
+  function syncCursor(){
+    if(!_isPlaying) return;
+    const now = audioCtx2.currentTime;
+    if(now >= endTime){ stopPlayback(); return; }
+    // Find current beat
+    let cur = beatTimings[0];
+    for(const bt of beatTimings){
+      if(bt.time <= now) cur = bt;
+      else break;
+    }
+    if(cur && (tabCursor.m !== cur.mi || tabCursor.b !== cur.bi)){
+      tabCursor.m = cur.mi;
+      tabCursor.b = cur.bi;
+      updateCursorUI();
+      drawCursorOverlay();
+    }
+    _playAnimFrame = requestAnimationFrame(syncCursor);
+  }
+  _playAnimFrame = requestAnimationFrame(syncCursor);
+  setStatus(`播放中… BPM ${bpm}`);
+}
+
 /* ── UI Bindings ── */
 document.querySelectorAll('.dur-btn').forEach(btn=>{
   btn.addEventListener('click',()=>{
@@ -1153,7 +1263,9 @@ document.getElementById('btnRest').addEventListener('click',()=>commitNote(0,tru
 document.getElementById('btnDelete').addEventListener('click',deleteCurrentNote);
 document.getElementById('btnAddM').addEventListener('click',addTabMeasure);
 document.getElementById('btnDelM').addEventListener('click',deleteTabMeasure);
-document.getElementById('btnPDF').addEventListener('click',exportPDF);
+document.getElementById('btnPlay').addEventListener('click', startPlayback);
+document.getElementById('btnStop').addEventListener('click', stopPlayback);
+
 document.getElementById('btnClearAll').addEventListener('click',()=>{
   if(!confirm('確定清除全部？'))return;
   tabMeasures=[makeMeasure(document.getElementById('timeSigSel').value)];
@@ -1178,6 +1290,8 @@ document.addEventListener('keydown',e=>{
   // Only handle keyboard for TAB editor when that page is active
   if(!document.getElementById('page-tab-editor').classList.contains('active'))return;
   if(inText)return;
+
+  if(e.key===' '&&!isFret){ e.preventDefault(); _isPlaying?stopPlayback():startPlayback(); return; }
 
   if(e.key==='ArrowRight'){e.preventDefault();cursorNext();clampCursor();updateCursorUI();renderScore();return;}
   if(e.key==='ArrowLeft'){e.preventDefault();cursorPrev();clampCursor();updateCursorUI();renderScore();return;}
